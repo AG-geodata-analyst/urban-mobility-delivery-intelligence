@@ -65,10 +65,17 @@ def ingest_population():
         with rasterio.open(tif_path) as src:
             bounds = src.bounds
             crs = src.crs
-            res_deg = src.res[0]
-            # Approximate meters per pixel at Estonia's latitude (~59°N):
-            # 1 degree of longitude ≈ 111_320 * cos(59°) ≈ 57_300 m
-            res_m = int(abs(res_deg) * 57_300)
+            res_deg = src.res[0]          # pixel size in degrees
+            raster_shape = src.shape
+            nodata = src.nodata
+
+        # WorldPop documents this product as "100m" — that's the nominal
+        # pixel size at the equator. In EPSG:4326 the pixel is
+        # 0.0008333° on each side; at Estonia's latitude (~59°N) that's
+        # ~92m north-south and ~48m east-west. We record the documented
+        # figure to match WorldPop's own documentation; the true
+        # physical size is logged separately below.
+        resolution_m = 100
 
         pg = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
         with pg.get_conn() as conn, conn.cursor() as cur:
@@ -79,14 +86,17 @@ def ingest_population():
                 VALUES (%s, %s, %s);
             """, (
                 Path(tif_path).name,
-                res_m,
+                resolution_m,
                 f"EPSG:{crs.to_epsg() if crs else 'unknown'} | {bounds}",
             ))
 
         meta = {
             "file": Path(tif_path).name,
             "crs": str(crs),
-            "resolution_m": res_m,
+            "resolution_m": resolution_m,
+            "pixel_size_deg": res_deg,
+            "shape": raster_shape,
+            "nodata": nodata,
             "bounds": str(bounds),
         }
         print(f"[register] {meta}")
