@@ -74,3 +74,13 @@ CREATE TABLE IF NOT EXISTS ops.pipeline_runs (
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started
     ON ops.pipeline_runs(started_at DESC);
+
+
+-- Population raster metadata (raster itself stored as file in data/)
+CREATE TABLE IF NOT EXISTS raw.population_grid (
+    id           SERIAL PRIMARY KEY,
+    source_file  TEXT,
+    resolution_m INTEGER,
+    bounds       TEXT,
+    ingested_at  TIMESTAMPTZ DEFAULT NOW()
+);
