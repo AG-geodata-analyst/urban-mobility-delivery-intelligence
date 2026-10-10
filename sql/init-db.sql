@@ -84,3 +84,24 @@ CREATE TABLE IF NOT EXISTS raw.population_grid (
     bounds       TEXT,
     ingested_at  TIMESTAMPTZ DEFAULT NOW()
 );
+
+
+-- ============================================================
+-- ANALYTICS LAYER — locker accessibility (Phase 3)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS analytics.locker_accessibility (
+    locker_id          INTEGER PRIMARY KEY,
+    locker_name        TEXT,
+    x_coord            NUMERIC,
+    y_coord            NUMERIC,
+    pop_5min_network   INTEGER,
+    pop_10min_network  INTEGER,
+    pop_15min_network  INTEGER,
+    pop_400m_buffer    INTEGER,
+    buffer_network_gap NUMERIC(6, 2),
+    computed_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_locker_access_gap
+    ON analytics.locker_accessibility(buffer_network_gap DESC);
