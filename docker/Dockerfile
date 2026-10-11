@@ -25,4 +25,6 @@ RUN pip install --no-cache-dir \
     "rasterstats>=0.19" \
     "shapely>=2.0" \
     "pyproj>=3.6" \
-    "requests>=2.31"
+    "requests>=2.31" \
+    "streamlit>=1.46" \
+    "plotly>=5.24" 

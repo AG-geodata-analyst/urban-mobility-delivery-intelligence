@@ -107,5 +107,31 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  streamlit:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: urban-streamlit
+    entrypoint: []
+    command: >
+      streamlit run /opt/airflow/dashboard/app.py
+      --server.port 8501
+      --server.address 0.0.0.0
+      --server.headless true
+    ports:
+      - "8503:8501"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER}
+      DB_PASS: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+    volumes:
+      - ./dashboard:/opt/airflow/dashboard
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+
 volumes:
   postgres-db-volume:
