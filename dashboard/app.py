@@ -144,8 +144,8 @@ def _base_map() -> folium.Map:
             bnd,
             name="Tallinn boundary",
             style_function=lambda _: {
-                "color": "#111111",
-                "weight": 0.9,
+                "color": "#000000",
+                "weight": 0.8,
                 "opacity": 0.75,
                 "fill": False,
             },
