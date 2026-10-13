@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 from branca.colormap import LinearColormap
 from branca.element import Element
+from shapely.geometry import box, mapping, shape
 from sqlalchemy import create_engine, text
 from streamlit_folium import st_folium
 
@@ -95,29 +96,45 @@ def load_network_edges(sample_every: int = 15) -> dict:
 
 # ─── Map helpers ─────────────────────────────────────────────────────────────
 
+def _outside_mask(boundary_geojson: dict) -> dict:
+    """
+    Return a GeoJSON polygon covering a generous bbox around Tallinn,
+    minus the Tallinn boundary — i.e. 'the world outside the study area'.
+    Used to dim everything except Tallinn.
+    """
+    geom = shape(boundary_geojson["features"][0]["geometry"])
+    world = box(15.0, 55.0, 35.0, 65.0)   # generous, covers any reasonable zoom
+    return mapping(world.difference(geom))
+
 def _base_map() -> folium.Map:
-    """Base Folium map + network & boundary overlays + in-map reset control."""
+    """Base Folium map + network/boundary/mask overlays + in-map reset control."""
     m = folium.Map(
         location=list(MAP_CENTER),
         zoom_start=MAP_ZOOM,
-#        tiles="Esri.WorldGrayCanvas",
-        tiles="OpenStreetMap",
+        tiles=None,                        # we add our own tile layer for opacity control
         control_scale=True,
     )
 
-    # --- network underlay (light grey) ---
+    # --- base tiles, slightly transparent so overlays read clearly ---
+    folium.TileLayer(
+        tiles="OpenStreetMap",
+        name="OpenStreetMap",
+        opacity=0.70,                      # ← transparency
+    ).add_to(m)
+
+    # --- walkable network (black lines) ---
     try:
         net = load_network_edges()
         folium.GeoJson(
             net,
             name="Walkable network (sampled)",
             style_function=lambda _: {
-                "color": "#666666",
-                "weight": 0.8,
-                "opacity": 0.30,
+                "color": "#000000",        # ← black
+                "weight": 0.9,
+                "opacity": 0.35,
             },
         ).add_to(m)
-    except Exception as e:                                # noqa: BLE001
+    except Exception as e:                 # noqa: BLE001
         st.warning(f"Network overlay unavailable: {e}")
 
     # --- Tallinn boundary (bold outline, no fill) ---
@@ -129,12 +146,25 @@ def _base_map() -> folium.Map:
             style_function=lambda _: {
                 "color": "#111111",
                 "weight": 2.2,
-                "opacity": 0.9,
+                "opacity": 0.95,
                 "fill": False,
             },
         ).add_to(m)
-    except Exception as e:                                # noqa: BLE001
-        st.warning(f"Boundary overlay unavailable: {e}")
+
+        # --- dim everything OUTSIDE Tallinn ---
+        folium.GeoJson(
+            _outside_mask(bnd),
+            name="Outside study area",
+            style_function=lambda _: {
+                "fillColor": "#000000",
+                "color": "#000000",
+                "weight": 0,
+                "fillOpacity": 0.55,       # ← how dark the "outside" is
+            },
+            interactive=False,
+        ).add_to(m)
+    except Exception as e:                 # noqa: BLE001
+        st.warning(f"Boundary / mask overlay unavailable: {e}")
 
     # --- in-map reset-view control (JS, no Streamlit rerun) ---
     reset_js = """
