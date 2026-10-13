@@ -146,7 +146,7 @@ def _base_map() -> folium.Map:
             style_function=lambda _: {
                 "color": "#000000",
                 "weight": 0.8,
-                "opacity": 0.75,
+                "opacity": 0.85,
                 "fill": False,
             },
         ).add_to(m)
@@ -159,7 +159,7 @@ def _base_map() -> folium.Map:
                 "fillColor": "#f2f2f2",
                 "color": "#d0d0d0",
                 "weight": 0.6,
-                "fillOpacity": 0.75,
+                "fillOpacity": 0.65,
             },
             interactive=False,
         ).add_to(m)

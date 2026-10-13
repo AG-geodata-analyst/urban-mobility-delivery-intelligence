@@ -15,6 +15,7 @@ Reads its DB connection from env vars (DB_HOST, DB_PORT, DB_USER,
 DB_PASS, DB_NAME) so it can run standalone — PostgresHook requires an
 Airflow task context and won't work from a plain python invocation.
 """
+import json
 import os
 import sys
 from pathlib import Path
@@ -25,7 +26,8 @@ import networkx as nx
 import psycopg2
 from pyproj import Transformer
 from rasterstats import zonal_stats
-from shapely.geometry import Point, MultiPoint
+#from shapely.geometry import Point, MultiPoint
+from shapely.geometry import Point, MultiPoint, shape
 
 project_root = Path(__file__).resolve().parents[1]
 
@@ -34,6 +36,7 @@ project_root = Path(__file__).resolve().parents[1]
 # ---------------------------------------------------------------
 GRAPH_PATH = project_root / "data" / "osm" / "tallinn_walk.graphml"
 POP_RASTER = project_root / "data" / "population" / "est_ppp_2020_UNadj_constrained.tif"
+BOUNDARY_PATH = project_root / "data" / "boundaries" / "tallinn.geojson"
 
 WALK_SPEED_MPS = 1.4          # average walking speed on flat ground
 WALK_SPEED_STAIRS_MPS = 0.8   # slower on stairs
@@ -112,12 +115,20 @@ def _add_walk_times(graph) -> nx.MultiDiGraph:
 # ---------------------------------------------------------------
 # Locker loading
 # ---------------------------------------------------------------
+def _load_tallinn_polygon():
+    """Tallinn administrative boundary as a shapely polygon (WGS84)."""
+    with open(BOUNDARY_PATH) as f:
+        gj = json.load(f)
+    # tallinn.geojson is a FeatureCollection with a single feature
+    return shape(gj["features"][0]["geometry"])
+
 def _load_lockers() -> list:
     """
-    Read lockers from Postgres, restricted to the Tallinn bbox.
+    Read lockers from Postgres, restricted to the Tallinn administrative
+    polygon (not just the bbox).
 
     The OSM walk graph covers Tallinn only. Lockers outside this region
-    would snap onto the nearest Tallinn node hundreds of kilometres away
+    would snap onto the nearest Tallinn node at the edge of the graph
     and produce nonsense results, so we filter them out here.
     """
     with _db_conn() as conn, conn.cursor() as cur:
@@ -137,6 +148,17 @@ def _load_lockers() -> list:
         {"id": r[0], "name": r[1], "x": float(r[2]), "y": float(r[3])}
         for r in rows
     ]
+
+    # --- restrict to lockers actually inside the Tallinn polygon ---
+    # The bbox query above is a fast index-friendly pre-filter; this
+    # polygon filter is the authoritative geographic boundary. Some
+    # lockers sit inside the bbox but outside the city limits (e.g.
+    # Maardu, Viimsi, Saue) and would snap onto the nearest Tallinn
+    # node at the edge of the graph, producing nonsense.
+    poly = _load_tallinn_polygon()
+    before = len(records)
+    records = [r for r in records if poly.covers(Point(r["x"], r["y"]))]
+    print(f"[phase3] Tallinn polygon filter: {before} -> {len(records)} lockers")
 
     # Auto-detect CRS
     sample_x = records[0]["x"] if records else 0
