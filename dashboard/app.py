@@ -27,7 +27,7 @@ DB_URL = (
 )
 
 MAP_CENTER = (59.437, 24.753)
-MAP_ZOOM = 11
+MAP_ZOOM = 12
 
 
 # ─── DB ──────────────────────────────────────────────────────────────────────
@@ -130,8 +130,8 @@ def _base_map() -> folium.Map:
             name="Walkable network (sampled)",
             style_function=lambda _: {
                 "color": "#000000",        # ← black
-                "weight": 0.9,
-                "opacity": 0.35,
+                "weight": 1,
+                "opacity": 0.9,
             },
         ).add_to(m)
     except Exception as e:                 # noqa: BLE001
@@ -145,24 +145,25 @@ def _base_map() -> folium.Map:
             name="Tallinn boundary",
             style_function=lambda _: {
                 "color": "#111111",
-                "weight": 2.2,
-                "opacity": 0.95,
+                "weight": 0.9,
+                "opacity": 0.75,
                 "fill": False,
             },
         ).add_to(m)
 
-        # --- dim everything OUTSIDE Tallinn ---
+        # --- soften everything OUTSIDE Tallinn with a light grey veil ---
         folium.GeoJson(
             _outside_mask(bnd),
             name="Outside study area",
             style_function=lambda _: {
-                "fillColor": "#000000",
-                "color": "#000000",
-                "weight": 0,
-                "fillOpacity": 0.55,       # ← how dark the "outside" is
+                "fillColor": "#f2f2f2",
+                "color": "#d0d0d0",
+                "weight": 0.6,
+                "fillOpacity": 0.75,
             },
             interactive=False,
         ).add_to(m)
+
     except Exception as e:                 # noqa: BLE001
         st.warning(f"Boundary / mask overlay unavailable: {e}")
 
