@@ -8,10 +8,12 @@ import osmnx as ox
 import pandas as pd
 import streamlit as st
 from branca.colormap import LinearColormap
-from branca.element import Element
+from branca.element import Element, MacroElement
+from jinja2 import Template
 from shapely.geometry import box, mapping, shape
 from sqlalchemy import create_engine, text
 from streamlit_folium import st_folium
+
 
 st.set_page_config(
     page_title="Tallinn Locker Accessibility",
@@ -27,7 +29,7 @@ DB_URL = (
 )
 
 MAP_CENTER = (59.437, 24.753)
-MAP_ZOOM = 11.5
+MAP_ZOOM = 12
 
 
 # ─── DB ──────────────────────────────────────────────────────────────────────
@@ -72,13 +74,13 @@ def load_lockers() -> pd.DataFrame:
         ORDER BY locker_id;
     """)
 
+
 @st.cache_data(show_spinner="Loading Tallinn boundary…")
 def load_tallinn_boundary() -> dict:
     """Tallinn administrative boundary (GeoJSON dict)."""
     p = Path("/opt/airflow/data/boundaries/tallinn.geojson")
     if p.exists():
         return json.loads(p.read_text())
-    # Fallback: ask OSM once (network required)
     gdf = ox.geocode_to_gdf("Tallinn, Estonia")
     return json.loads(gdf.to_json())
 
@@ -94,33 +96,84 @@ def load_network_edges(sample_every: int = 15) -> dict:
     edges = edges.iloc[::sample_every]
     return json.loads(edges[["geometry"]].to_json())
 
+
 # ─── Map helpers ─────────────────────────────────────────────────────────────
 
 def _outside_mask(boundary_geojson: dict) -> dict:
     """
-    Return a GeoJSON polygon covering a generous bbox around Tallinn,
-    minus the Tallinn boundary — i.e. 'the world outside the study area'.
+    GeoJSON polygon = generous world bbox minus the Tallinn boundary.
     Used to dim everything except Tallinn.
     """
     geom = shape(boundary_geojson["features"][0]["geometry"])
-    world = box(15.0, 55.0, 35.0, 65.0)   # generous, covers any reasonable zoom
+    world = box(15.0, 55.0, 35.0, 65.0)
     return mapping(world.difference(geom))
+
+
+class _ResetControl(MacroElement):
+    """Leaflet control that recentres the map — pure JS, no Streamlit rerun."""
+
+    _template = Template("""
+        {% macro script(this, kwargs) %}
+        (function() {
+            var ResetControl = L.Control.extend({
+                options: { position: 'topleft' },
+                onAdd: function(map) {
+                    var c = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                    var a = L.DomUtil.create('a', '', c);
+                    a.innerHTML = '\\uD83C\\uDFAF Reset View';
+                    a.title = 'Reset map to Tallinn centre';
+                    a.href = '#';
+                    a.style.cssText = 'font-size:12px;text-align:center;line-height:26px;'
+                                    + 'height:26px;width:auto;padding:0 10px;'
+                                    + 'text-decoration:none;color:#333;font-weight:500;';
+                    L.DomEvent.on(a, 'click', function(e) {
+                        L.DomEvent.stop(e);
+                        map.setView({{ this.center }}, {{ this.zoom }});
+                    });
+                    return c;
+                }
+            });
+            new ResetControl().addTo({{ this._parent.get_name() }});
+        })();
+        {% endmacro %}
+    """)
+
+    def __init__(self, center, zoom):
+        super().__init__()
+        self._name = "ResetControl"
+        self.center = list(center)
+        self.zoom = zoom
+
 
 def _base_map() -> folium.Map:
     """Base Folium map + network/boundary/mask overlays + in-map reset control."""
     m = folium.Map(
         location=list(MAP_CENTER),
         zoom_start=MAP_ZOOM,
-        tiles=None,                        # we add our own tile layer for opacity control
+        tiles=None,
         control_scale=True,
     )
 
-    # --- base tiles, slightly transparent so overlays read clearly ---
+    # --- base tiles ---
     folium.TileLayer(
         tiles="OpenStreetMap",
         name="OpenStreetMap",
-        opacity=0.70,                      # ← transparency
+        opacity=0.95,
     ).add_to(m)
+
+    # --- strip browser-default underline/outline on Leaflet controls ---
+    m.get_root().header.add_child(Element(
+        "<style>"
+        ".leaflet-bar a,"
+        ".leaflet-bar a:hover,"
+        ".leaflet-bar a:focus,"
+        ".leaflet-bar a:active {"
+        "  text-decoration: none !important;"
+        "  outline: none !important;"
+        "  box-shadow: none !important;"
+        "}"
+        "</style>"
+    ))
 
     # --- walkable network (black lines) ---
     try:
@@ -129,7 +182,7 @@ def _base_map() -> folium.Map:
             net,
             name="Walkable network (sampled)",
             style_function=lambda _: {
-                "color": "#000000",        # ← black
+                "color": "#000000",
                 "weight": 1,
                 "opacity": 0.9,
             },
@@ -137,7 +190,7 @@ def _base_map() -> folium.Map:
     except Exception as e:                 # noqa: BLE001
         st.warning(f"Network overlay unavailable: {e}")
 
-    # --- Tallinn boundary (bold outline, no fill) ---
+    # --- Tallinn boundary + outside mask ---
     try:
         bnd = load_tallinn_boundary()
         folium.GeoJson(
@@ -145,13 +198,12 @@ def _base_map() -> folium.Map:
             name="Tallinn boundary",
             style_function=lambda _: {
                 "color": "#000000",
-                "weight": 0.8,
-                "opacity": 0.85,
+                "weight": 1,
+                "opacity": 1,
                 "fill": False,
             },
         ).add_to(m)
 
-        # --- soften everything OUTSIDE Tallinn with a light grey veil ---
         folium.GeoJson(
             _outside_mask(bnd),
             name="Outside study area",
@@ -159,39 +211,17 @@ def _base_map() -> folium.Map:
                 "fillColor": "#f2f2f2",
                 "color": "#d0d0d0",
                 "weight": 0.6,
-                "fillOpacity": 0.65,
+                "fillOpacity": 0.75,
             },
             interactive=False,
         ).add_to(m)
-
     except Exception as e:                 # noqa: BLE001
         st.warning(f"Boundary / mask overlay unavailable: {e}")
 
-    # --- in-map reset-view control (JS, no Streamlit rerun) ---
-    reset_js = """
-    (function() {
-        var ResetControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function(map) {
-                var c = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
-                var a = L.DomUtil.create('a', '', c);
-                a.innerHTML = '\\uD83C\\uDFAF';
-                a.title = 'Reset view';
-                a.href = '#';
-                a.style.cssText = 'font-size:16px;text-align:center;line-height:26px;width:26px;';
-                L.DomEvent.on(a, 'click', function(e) {
-                    L.DomEvent.stop(e);
-                    map.setView(%(center)s, %(zoom)s);
-                });
-                return c;
-            }
-        });
-        new ResetControl().addTo(%(map)s);
-    })();
-    """ % {"center": list(MAP_CENTER), "zoom": MAP_ZOOM, "map": m.get_name()}
-
-    m.get_root().html.add_child(Element(reset_js))
+    # --- reset-view control ---
+    m.add_child(_ResetControl(MAP_CENTER, MAP_ZOOM))
     return m
+
 
 def _radius_for(value: float, value_max: float,
                 min_px: float = 4.0, max_px: float = 18.0) -> float:
@@ -199,6 +229,7 @@ def _radius_for(value: float, value_max: float,
     if value_max <= 0:
         return min_px
     return min_px + (max_px - min_px) * math.sqrt(max(value, 0) / value_max)
+
 
 # ─── Three maps ──────────────────────────────────────────────────────────────
 
