@@ -1,14 +1,16 @@
+import json
 import math
 import os
+from pathlib import Path
 
 import folium
+import osmnx as ox
 import pandas as pd
 import streamlit as st
 from branca.colormap import LinearColormap
 from branca.element import Element
 from sqlalchemy import create_engine, text
 from streamlit_folium import st_folium
-
 
 st.set_page_config(
     page_title="Tallinn Locker Accessibility",
@@ -69,18 +71,72 @@ def load_lockers() -> pd.DataFrame:
         ORDER BY locker_id;
     """)
 
+@st.cache_data(show_spinner="Loading Tallinn boundary…")
+def load_tallinn_boundary() -> dict:
+    """Tallinn administrative boundary (GeoJSON dict)."""
+    p = Path("/opt/airflow/data/boundaries/tallinn.geojson")
+    if p.exists():
+        return json.loads(p.read_text())
+    # Fallback: ask OSM once (network required)
+    gdf = ox.geocode_to_gdf("Tallinn, Estonia")
+    return json.loads(gdf.to_json())
+
+
+@st.cache_data(show_spinner="Loading walkable network…")
+def load_network_edges(sample_every: int = 15) -> dict:
+    """
+    Sampled subset of the OSM pedestrian walk graph, as GeoJSON.
+    Full graph has ~172k edges; we take every Nth for responsiveness.
+    """
+    G = ox.load_graphml("/opt/airflow/data/osm/tallinn_walk.graphml")
+    edges = ox.graph_to_gdfs(G, nodes=False, edges=True)
+    edges = edges.iloc[::sample_every]
+    return json.loads(edges[["geometry"]].to_json())
 
 # ─── Map helpers ─────────────────────────────────────────────────────────────
 
 def _base_map() -> folium.Map:
-    """Base Folium map + JS-injected 'reset view' control (no Streamlit rerun)."""
+    """Base Folium map + network & boundary overlays + in-map reset control."""
     m = folium.Map(
         location=list(MAP_CENTER),
         zoom_start=MAP_ZOOM,
+#        tiles="Esri.WorldGrayCanvas",
         tiles="OpenStreetMap",
         control_scale=True,
     )
 
+    # --- network underlay (light grey) ---
+    try:
+        net = load_network_edges()
+        folium.GeoJson(
+            net,
+            name="Walkable network (sampled)",
+            style_function=lambda _: {
+                "color": "#666666",
+                "weight": 0.8,
+                "opacity": 0.30,
+            },
+        ).add_to(m)
+    except Exception as e:                                # noqa: BLE001
+        st.warning(f"Network overlay unavailable: {e}")
+
+    # --- Tallinn boundary (bold outline, no fill) ---
+    try:
+        bnd = load_tallinn_boundary()
+        folium.GeoJson(
+            bnd,
+            name="Tallinn boundary",
+            style_function=lambda _: {
+                "color": "#111111",
+                "weight": 2.2,
+                "opacity": 0.9,
+                "fill": False,
+            },
+        ).add_to(m)
+    except Exception as e:                                # noqa: BLE001
+        st.warning(f"Boundary overlay unavailable: {e}")
+
+    # --- in-map reset-view control (JS, no Streamlit rerun) ---
     reset_js = """
     (function() {
         var ResetControl = L.Control.extend({
@@ -106,14 +162,12 @@ def _base_map() -> folium.Map:
     m.get_root().html.add_child(Element(reset_js))
     return m
 
-
 def _radius_for(value: float, value_max: float,
                 min_px: float = 4.0, max_px: float = 18.0) -> float:
     """Radius scaled on sqrt(value/max) so area is proportional to value."""
     if value_max <= 0:
         return min_px
     return min_px + (max_px - min_px) * math.sqrt(max(value, 0) / value_max)
-
 
 # ─── Three maps ──────────────────────────────────────────────────────────────
 
