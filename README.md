@@ -12,13 +12,13 @@
 [![Streamlit](https://img.shields.io/badge/streamlit-1.39-FF4B4B.svg)](https://streamlit.io/)
 [![Status](https://img.shields.io/badge/status-phase--4--complete-success.svg)](#-roadmap)
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://tallinn-lockers.streamlit.app)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://urban-mobility-delivery-intelligence.streamlit.app)
 
 ---
 
 ## 🌐 Live Demo
 
-**→ [https://tallinn-lockers.streamlit.app](https://tallinn-lockers.streamlit.app)**
+**→ [https://urban-mobility-delivery-intelligence.streamlit.app](https://urban-mobility-delivery-intelligence.streamlit.app)**
 
 The deployed dashboard reads from a small static snapshot of the analytics output (~1.2 MB), so it runs with zero infrastructure — no database, no GDAL, no 62 MB walk graph — and boots in under 3 seconds.
 
