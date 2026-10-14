@@ -29,4 +29,5 @@ RUN pip install --no-cache-dir \
     "streamlit>=1.39" \ 
     "folium>=0.17" \ 
     "streamlit-folium>=0.20" \ 
-    "plotly>=5.22"
+    "plotly>=5.22" \
+    "pillow>=10"

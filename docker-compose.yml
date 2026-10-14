@@ -131,6 +131,7 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASS: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB}
+      CARTO_API_KEY: ${CARTO_API_KEY}
     volumes:
       - ./dashboard:/opt/airflow/dashboard
       - ./data:/opt/airflow/data
