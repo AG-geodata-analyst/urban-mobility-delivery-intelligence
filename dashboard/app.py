@@ -101,8 +101,8 @@ def load_network_edges(sample_every: int = 15) -> dict:
 @st.cache_data(show_spinner="Rendering population grid…")
 def load_population_png():
     """
-    Clip WorldPop raster to Tallinn polygon → coloured PNG + real stats
-    (total, min, max) computed only from cells inside the boundary.
+    Clip the WorldPop raster to the Tallinn polygon, colour it with a
+    viridis-like ramp, and return (base64 PNG, [[s,w],[n,e]] bounds, stats).
     """
     raster_path = "/opt/airflow/data/population/est_ppp_2020_UNadj_constrained.tif"
     bnd = load_tallinn_boundary()
@@ -130,11 +130,8 @@ def load_population_png():
         "low":   float(valid_values.min()),
         "high":  float(valid_values.max()),
     }
-    print(f"[pop-grid] stats → total={stats['total']:,} "
-          f"low={stats['low']:.2f} high={stats['high']:.2f}")
 
-    # ramp top = actual max, so the legend numbers match the colours
-    vmax = stats["high"]
+    vmax = float(np.percentile(valid_values, 99))
     anchors = np.array([
         [68, 1, 84], [59, 82, 139], [33, 145, 140],
         [94, 201, 98], [253, 231, 37],
@@ -156,6 +153,7 @@ def load_population_png():
     png_b64 = base64.b64encode(buf.getvalue()).decode()
 
     return png_b64, [[south, west], [north, east]], stats
+
 
 # ─── Map helpers ─────────────────────────────────────────────────────────────
 
@@ -201,26 +199,19 @@ class _ResetControl(MacroElement):
         self.zoom = zoom
 
 
-class _PopGridLegend(MacroElement):
-    """Viridis legend, bottom-left; text values passed in from the DAG's raster."""
+class _MapLegends(MacroElement):
+    """Bottom-left legends stack. Buffer first (top), pop-grid second (below)."""
 
     _template = Template("""
         {% macro script(this, kwargs) %}
         (function() {
             var map = {{ this._parent.get_name() }};
 
-            var legendCss =
+            var baseCss =
                 "background:rgba(255,255,255,0.92);" +
                 "padding:8px 10px;border-radius:4px;font-size:11px;" +
-                "box-shadow:0 1px 4px rgba(0,0,0,0.35);display:none;";
-            var barCss =
-                "width:160px;height:12px;border-radius:2px;" +
-                "background:linear-gradient(to right," +
-                "#440154 0%,#3b528b 25%,#21918c 50%,#5ec962 75%,#fde725 100%);";
-
-            var titleText = {{ this.title | tojson }};
-            var lowText   = {{ this.low_text | tojson }};
-            var highText  = {{ this.high_text | tojson }};
+                "box-shadow:0 1px 4px rgba(0,0,0,0.35);" +
+                "margin-bottom:6px;";
 
             var LegendControl = L.Control.extend({
                 options: { position: 'bottomleft' },
@@ -230,58 +221,113 @@ class _PopGridLegend(MacroElement):
                     c.style.border = 'none';
                     c.style.boxShadow = 'none';
 
-                    var inner = document.createElement('div');
-                    inner.id = 'pop-grid-legend-inner';
-                    inner.style.cssText = legendCss;
-                    inner.innerHTML =
+                    {% if this.has_buffer %}
+                    var bufEl = document.createElement('div');
+                    bufEl.id = 'buffer-legend-inner';
+                    bufEl.style.cssText = baseCss +
+                        'display:{{ "block" if this.buffer_visible else "none" }};';
+                    bufEl.innerHTML =
                         '<div style="font-weight:600;margin-bottom:4px;color:#222;">' +
-                        titleText + '</div>' +
-                        '<div style="' + barCss + '"></div>' +
+                        {{ this.buffer_title | tojson }} + '</div>' +
+                        '<div style="width:160px;height:12px;border-radius:2px;' +
+                        'background:linear-gradient(to right,' +
+                        '#ffffcc 0%,#fed976 25%,#fd8d3c 50%,#e31a1c 75%,#800026 100%);' +
+                        '"></div>' +
                         '<div style="display:flex;justify-content:space-between;' +
                         'font-size:10px;color:#444;margin-top:2px;">' +
-                        '<span>' + lowText + '</span>' +
-                        '<span>' + highText + '</span></div>';
+                        '<span>' + {{ this.buffer_low | tojson }} + '</span>' +
+                        '<span>' + {{ this.buffer_high | tojson }} + '</span></div>';
+                    c.appendChild(bufEl);
+                    {% endif %}
 
-                    c.appendChild(inner);
+                    {% if this.has_popgrid %}
+                    var popEl = document.createElement('div');
+                    popEl.id = 'pop-grid-legend-inner';
+                    popEl.style.cssText = baseCss +
+                        'display:{{ "block" if this.popgrid_visible else "none" }};';
+                    popEl.innerHTML =
+                        '<div style="font-weight:600;margin-bottom:4px;color:#222;">' +
+                        {{ this.popgrid_title | tojson }} + '</div>' +
+                        '<div style="width:160px;height:12px;border-radius:2px;' +
+                        'background:linear-gradient(to right,' +
+                        '#440154 0%,#3b528b 25%,#21918c 50%,#5ec962 75%,#fde725 100%);' +
+                        '"></div>' +
+                        '<div style="display:flex;justify-content:space-between;' +
+                        'font-size:10px;color:#444;margin-top:2px;">' +
+                        '<span>' + {{ this.popgrid_low | tojson }} + '</span>' +
+                        '<span>' + {{ this.popgrid_high | tojson }} + '</span></div>';
+                    c.appendChild(popEl);
+                    {% endif %}
+
                     return c;
                 }
             });
             new LegendControl().addTo(map);
 
-            function toggleLegend(show) {
-                var el = document.getElementById('pop-grid-legend-inner');
+            function toggle(id, show) {
+                var el = document.getElementById(id);
                 if (el) el.style.display = show ? 'block' : 'none';
             }
 
             map.on('overlayadd', function(e) {
-                if (e.name && e.name.indexOf('Population grid') !== -1) {
-                    toggleLegend(true);
+                if (!e.name) return;
+                if (e.name.indexOf('400 m buffers') !== -1) {
+                    toggle('buffer-legend-inner', true);
+                }
+                if (e.name.indexOf('Population grid') !== -1) {
+                    toggle('pop-grid-legend-inner', true);
                 }
             });
             map.on('overlayremove', function(e) {
-                if (e.name && e.name.indexOf('Population grid') !== -1) {
-                    toggleLegend(false);
+                if (!e.name) return;
+                if (e.name.indexOf('400 m buffers') !== -1) {
+                    toggle('buffer-legend-inner', false);
+                }
+                if (e.name.indexOf('Population grid') !== -1) {
+                    toggle('pop-grid-legend-inner', false);
                 }
             });
         })();
         {% endmacro %}
     """)
 
-    def __init__(self, title: str, low_text: str, high_text: str):
+    def __init__(self,
+                 buffer_legend: dict | None = None,
+                 popgrid_stats: dict | None = None,
+                 buffer_visible: bool = True,
+                 popgrid_visible: bool = False):
         super().__init__()
-        self._name = "PopGridLegend"
-        self.title = title
-        self.low_text = low_text
-        self.high_text = high_text
+        self._name = "MapLegends"
+
+        self.has_buffer = buffer_legend is not None
+        self.has_popgrid = popgrid_stats is not None
+        self.buffer_visible = buffer_visible
+        self.popgrid_visible = popgrid_visible
+
+        if buffer_legend:
+            self.buffer_title = buffer_legend["title"]
+            self.buffer_low = buffer_legend["low"]
+            self.buffer_high = buffer_legend["high"]
+        else:
+            self.buffer_title = ""
+            self.buffer_low = ""
+            self.buffer_high = ""
+
+        if popgrid_stats:
+            self.popgrid_title = "Population density (WorldPop)"
+            self.popgrid_low = f"Low: {popgrid_stats['low']:.1f}"
+            self.popgrid_high = f"High: {popgrid_stats['high']:.0f}"
+        else:
+            self.popgrid_title = ""
+            self.popgrid_low = ""
+            self.popgrid_high = ""
+
 
 def _base_map(show_network: bool = True,
               show_pop_grid: bool = False,
-              prepend_layers: list | None = None) -> folium.Map:
-    """Base Folium map with configurable overlays.
-
-    prepend_layers are added BEFORE the population grid so they appear
-    first in the layer switcher (in the same order as the list).
-    """
+              prepend_layers: list | None = None,
+              buffer_legend: dict | None = None) -> folium.Map:
+    """Base Folium map with configurable overlays."""
     m = folium.Map(
         location=list(MAP_CENTER),
         zoom_start=MAP_ZOOM,
@@ -329,7 +375,7 @@ def _base_map(show_network: bool = True,
         for layer in prepend_layers:
             layer.add_to(m)
 
-    # --- population grid ---
+    # --- population grid (with stats) ---
     pop_stats = None
     if show_pop_grid:
         try:
@@ -392,13 +438,15 @@ def _base_map(show_network: bool = True,
     except Exception as e:                     # noqa: BLE001
         st.warning(f"Boundary / mask overlay unavailable: {e}")
 
+    # --- controls ---
     m.add_child(_ResetControl(MAP_CENTER, MAP_ZOOM))
 
-    if show_pop_grid and pop_stats is not None:
-        m.add_child(_PopGridLegend(
-            title=f"Population in Tallinn — total: {pop_stats['total']:,}",
-            low_text=f"Low: {pop_stats['low']:.1f}",
-            high_text=f"High: {pop_stats['high']:.0f}",
+    if buffer_legend or pop_stats:
+        m.add_child(_MapLegends(
+            buffer_legend=buffer_legend,
+            popgrid_stats=pop_stats,
+            buffer_visible=buffer_legend is not None,
+            popgrid_visible=False,
         ))
 
     folium.LayerControl(collapsed=False, position="topright").add_to(m)
@@ -419,13 +467,13 @@ def build_buffer_map(lockers: pd.DataFrame,
     """Tab 1 — naive 400 m buffer as actual geographic circles."""
 
     vmax = float(lockers["pop_400m_buffer"].max() or 1)
+    vmin = float(lockers["pop_400m_buffer"].min() or 0)
+
     cmap = LinearColormap(
         colors=["#ffffcc", "#fed976", "#fd8d3c", "#e31a1c", "#800026"],
         vmin=0, vmax=vmax,
-        caption="Residents inside the 400 m buffer",
     )
 
-    # --- FeatureGroup #1: buffers (checked by default) ---
     buf_fg = folium.FeatureGroup(name="400 m buffers", show=True)
     for _, r in lockers.iterrows():
         v = int(r["pop_400m_buffer"])
@@ -444,7 +492,6 @@ def build_buffer_map(lockers: pd.DataFrame,
                 max_width=240),
         ).add_to(buf_fg)
 
-    # --- FeatureGroup #2: locker markers (unchecked by default) ---
     marker_fg = folium.FeatureGroup(name="Locker locations", show=False)
     for _, r in lockers.iterrows():
         folium.Marker(
@@ -461,13 +508,18 @@ def build_buffer_map(lockers: pd.DataFrame,
                 max_width=240),
         ).add_to(marker_fg)
 
+    buffer_legend = {
+        "title": "Residents inside the 400 m buffer",
+        "low":   f"Low: {int(vmin):,}",
+        "high":  f"High: {int(vmax):,}",
+    }
+
     m = _base_map(
         show_network=False,
         show_pop_grid=show_pop_grid,
-        prepend_layers=[buf_fg, marker_fg],   # order in switcher: buffers, locations, grid
+        prepend_layers=[buf_fg, marker_fg],
+        buffer_legend=buffer_legend,
     )
-
-    cmap.add_to(m)
     return m
 
 
