@@ -35,6 +35,7 @@ x-airflow-common: &airflow-common
     - ./sql:/opt/airflow/sql
     - ./config/simple_auth_manager_passwords.json.generated:/opt/airflow/config/simple_auth_manager_passwords.json.generated
     - ./src:/opt/airflow/src
+    - ./dashboard:/opt/airflow/dashboard
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     postgres:

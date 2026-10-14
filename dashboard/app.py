@@ -1,23 +1,15 @@
 import base64
 import json
 import math
-import os
 from io import BytesIO
 from pathlib import Path
 
 import folium
-import numpy as np
-import osmnx as ox
 import pandas as pd
-import rasterio
 import streamlit as st
 from branca.colormap import LinearColormap
 from branca.element import Element, MacroElement
 from jinja2 import Template
-from PIL import Image
-from rasterio.mask import mask as rio_mask
-from shapely.geometry import box, mapping, shape
-from sqlalchemy import create_engine, text
 from streamlit_folium import st_folium
 
 
@@ -27,144 +19,69 @@ st.set_page_config(
     layout="wide",
 )
 
-DB_URL = (
-    f"postgresql+psycopg2://"
-    f"{os.getenv('DB_USER', 'airflow')}:{os.getenv('DB_PASS', 'airflow')}"
-    f"@{os.getenv('DB_HOST', 'postgres')}:{os.getenv('DB_PORT', '5432')}"
-    f"/{os.getenv('DB_NAME', 'airflow')}"
-)
+# ─── Paths ───────────────────────────────────────────────────────────────────
+
+DATA_DIR = Path(__file__).parent / "data"
+
+LOCKERS_CSV     = DATA_DIR / "lockers.csv"
+BOUNDARY_GEOJSON = DATA_DIR / "tallinn.geojson"
+NETWORK_GEOJSON  = DATA_DIR / "network.geojson"
+POPGRID_PNG      = DATA_DIR / "popgrid.png"
+POPGRID_META     = DATA_DIR / "popgrid_meta.json"
 
 MAP_CENTER = (59.437, 24.753)
 MAP_ZOOM = 11
 
 
-# ─── DB ──────────────────────────────────────────────────────────────────────
+# ─── Data loaders (local static files) ──────────────────────────────────────
 
-@st.cache_resource
-def get_engine():
-    return create_engine(DB_URL, pool_pre_ping=True)
-
-
-def _df_from_sql(sql: str) -> pd.DataFrame:
-    with get_engine().connect() as conn:
-        result = conn.execute(text(sql))
-        return pd.DataFrame(result.fetchall(), columns=result.keys())
-
-
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def load_kpis() -> pd.DataFrame:
-    return _df_from_sql("""
-        SELECT
-            COUNT(*)                                     AS lockers_scored,
-            ROUND(AVG(pop_10min_network))::int           AS avg_net_10min,
-            ROUND(AVG(pop_400m_buffer))::int             AS avg_buffer,
-            ROUND(AVG(buffer_network_gap)::numeric, 1)   AS avg_gap
-        FROM analytics.locker_accessibility;
-    """)
+    df = pd.read_csv(LOCKERS_CSV)
+    return pd.DataFrame([{
+        "lockers_scored": int(len(df)),
+        "avg_net_10min":  int(round(df["pop_10min_network"].mean())),
+        "avg_buffer":     int(round(df["pop_400m_buffer"].mean())),
+        "avg_gap":        round(float(df["buffer_network_gap"].mean()), 1),
+    }])
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def load_lockers() -> pd.DataFrame:
-    return _df_from_sql("""
-        SELECT
-            locker_id,
-            locker_name,
-            x_coord::float  AS lon,
-            y_coord::float  AS lat,
-            pop_5min_network,
-            pop_10min_network,
-            pop_15min_network,
-            pop_400m_buffer,
-            buffer_network_gap
-        FROM analytics.locker_accessibility
-        ORDER BY locker_id;
-    """)
+    return pd.read_csv(LOCKERS_CSV)
 
 
 @st.cache_data(show_spinner="Loading Tallinn boundary…")
 def load_tallinn_boundary() -> dict:
-    p = Path("/opt/airflow/data/boundaries/tallinn.geojson")
-    if p.exists():
-        return json.loads(p.read_text())
-    gdf = ox.geocode_to_gdf("Tallinn, Estonia")
-    return json.loads(gdf.to_json())
+    return json.loads(BOUNDARY_GEOJSON.read_text())
 
 
 @st.cache_data(show_spinner="Loading walkable network…")
-def load_network_edges(sample_every: int = 15) -> dict:
-    G = ox.load_graphml("/opt/airflow/data/osm/tallinn_walk.graphml")
-    edges = ox.graph_to_gdfs(G, nodes=False, edges=True)
-    edges = edges.iloc[::sample_every]
-    return json.loads(edges[["geometry"]].to_json())
+def load_network_edges() -> dict:
+    return json.loads(NETWORK_GEOJSON.read_text())
 
 
-@st.cache_data(show_spinner="Rendering population grid…")
-def load_population_png():
-    """
-    Clip the WorldPop raster to the Tallinn polygon, colour it with a
-    viridis-like ramp, and return (base64 PNG, [[s,w],[n,e]] bounds, stats).
-    """
-    raster_path = "/opt/airflow/data/population/est_ppp_2020_UNadj_constrained.tif"
-    bnd = load_tallinn_boundary()
-    geom = [shape(bnd["features"][0]["geometry"])]
-
-    with rasterio.open(raster_path) as src:
-        out_image, out_transform = rio_mask(src, geom, crop=True)
-        nodata = src.nodata
-        height, width = out_image.shape[1], out_image.shape[2]
-        west, south, east, north = rasterio.transform.array_bounds(
-            height, width, out_transform
-        )
-
-    data = out_image[0].astype(float)
-    if nodata is not None:
-        data[data == nodata] = np.nan
-
-    valid = np.isfinite(data) & (data > 0)
-    if not valid.any():
-        raise ValueError("Clipped raster has no valid population pixels.")
-
-    valid_values = data[valid]
-    stats = {
-        "total": int(round(float(valid_values.sum()))),
-        "low":   float(valid_values.min()),
-        "high":  float(valid_values.max()),
-    }
-
-    vmax = float(np.percentile(valid_values, 99))
-    anchors = np.array([
-        [68, 1, 84], [59, 82, 139], [33, 145, 140],
-        [94, 201, 98], [253, 231, 37],
-    ], dtype=float)
-
-    clipped = np.clip(np.nan_to_num(data) / max(vmax, 1e-9), 0, 1)
-    idx = clipped * (len(anchors) - 1)
-    lo = np.floor(idx).astype(int)
-    hi = np.clip(lo + 1, 0, len(anchors) - 1)
-    frac = (idx - lo)[..., None]
-    rgb = anchors[lo] * (1 - frac) + anchors[hi] * frac
-
-    rgba = np.zeros((*rgb.shape[:2], 4), dtype=np.uint8)
-    rgba[..., :3] = rgb.astype(np.uint8)
-    rgba[..., 3] = np.where(valid, 180, 0).astype(np.uint8)
-
-    buf = BytesIO()
-    Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG")
-    png_b64 = base64.b64encode(buf.getvalue()).decode()
-
-    return png_b64, [[south, west], [north, east]], stats
+@st.cache_data(show_spinner="Loading population grid…")
+def load_population_grid():
+    """Return (base64 PNG, bounds, stats) from the frozen snapshot."""
+    png_b64 = base64.b64encode(POPGRID_PNG.read_bytes()).decode()
+    meta = json.loads(POPGRID_META.read_text())
+    return png_b64, meta["bounds"], meta["stats"]
 
 
 # ─── Map helpers ─────────────────────────────────────────────────────────────
 
 def _outside_mask(boundary_geojson: dict) -> dict:
+    """GeoJSON polygon = large world box minus Tallinn boundary."""
+    from shapely.geometry import box, mapping, shape   # lazy import, tiny cost
+
     geom = shape(boundary_geojson["features"][0]["geometry"])
     world = box(15.0, 55.0, 35.0, 65.0)
     return mapping(world.difference(geom))
 
 
 class _ResetControl(MacroElement):
-    """Leaflet control that recentres the map — pure JS, no Streamlit rerun."""
+    """In-map reset button (pure JS, no Streamlit rerun)."""
 
     _template = Template("""
         {% macro script(this, kwargs) %}
@@ -200,7 +117,7 @@ class _ResetControl(MacroElement):
 
 
 class _MapLegends(MacroElement):
-    """Bottom-left legends stack. Buffer first (top), pop-grid second (below)."""
+    """Bottom-left legends stack — buffers (top), pop-grid (below)."""
 
     _template = Template("""
         {% macro script(this, kwargs) %}
@@ -210,8 +127,7 @@ class _MapLegends(MacroElement):
             var baseCss =
                 "background:rgba(255,255,255,0.92);" +
                 "padding:8px 10px;border-radius:4px;font-size:11px;" +
-                "box-shadow:0 1px 4px rgba(0,0,0,0.35);" +
-                "margin-bottom:6px;";
+                "box-shadow:0 1px 4px rgba(0,0,0,0.35);margin-bottom:6px;";
 
             var LegendControl = L.Control.extend({
                 options: { position: 'bottomleft' },
@@ -291,11 +207,8 @@ class _MapLegends(MacroElement):
         {% endmacro %}
     """)
 
-    def __init__(self,
-                 buffer_legend: dict | None = None,
-                 popgrid_stats: dict | None = None,
-                 buffer_visible: bool = True,
-                 popgrid_visible: bool = False):
+    def __init__(self, buffer_legend=None, popgrid_stats=None,
+                 buffer_visible=True, popgrid_visible=False):
         super().__init__()
         self._name = "MapLegends"
 
@@ -309,24 +222,20 @@ class _MapLegends(MacroElement):
             self.buffer_low = buffer_legend["low"]
             self.buffer_high = buffer_legend["high"]
         else:
-            self.buffer_title = ""
-            self.buffer_low = ""
-            self.buffer_high = ""
+            self.buffer_title = self.buffer_low = self.buffer_high = ""
 
         if popgrid_stats:
             self.popgrid_title = "Population density (WorldPop)"
             self.popgrid_low = f"Low: {popgrid_stats['low']:.1f}"
             self.popgrid_high = f"High: {popgrid_stats['high']:.0f}"
         else:
-            self.popgrid_title = ""
-            self.popgrid_low = ""
-            self.popgrid_high = ""
+            self.popgrid_title = self.popgrid_low = self.popgrid_high = ""
 
 
 def _base_map(show_network: bool = True,
               show_pop_grid: bool = False,
-              prepend_layers: list | None = None,
-              buffer_legend: dict | None = None) -> folium.Map:
+              prepend_layers=None,
+              buffer_legend=None) -> folium.Map:
     """Base Folium map with configurable overlays."""
     m = folium.Map(
         location=list(MAP_CENTER),
@@ -335,7 +244,16 @@ def _base_map(show_network: bool = True,
         control_scale=True,
     )
 
-    carto_key = os.getenv("CARTO_API_KEY", "").strip()
+    # CartoDB basemap requires a key (read from Streamlit secrets or env).
+    carto_key = ""
+    try:
+        carto_key = st.secrets.get("CARTO_API_KEY", "")
+    except Exception:                        # noqa: BLE001
+        pass
+    if not carto_key:
+        import os
+        carto_key = os.getenv("CARTO_API_KEY", "").strip()
+
     if carto_key:
         tiles_url = (
             "https://{s}.basemaps.cartocdn.com/dark_all/"
@@ -370,7 +288,6 @@ def _base_map(show_network: bool = True,
         "</style>"
     ))
 
-    # --- layers that should appear FIRST in the switcher ---
     if prepend_layers:
         for layer in prepend_layers:
             layer.add_to(m)
@@ -379,7 +296,7 @@ def _base_map(show_network: bool = True,
     pop_stats = None
     if show_pop_grid:
         try:
-            png_b64, bounds, pop_stats = load_population_png()
+            png_b64, bounds, pop_stats = load_population_grid()
             folium.raster_layers.ImageOverlay(
                 image=f"data:image/png;base64,{png_b64}",
                 bounds=bounds,
@@ -438,7 +355,6 @@ def _base_map(show_network: bool = True,
     except Exception as e:                     # noqa: BLE001
         st.warning(f"Boundary / mask overlay unavailable: {e}")
 
-    # --- controls ---
     m.add_child(_ResetControl(MAP_CENTER, MAP_ZOOM))
 
     if buffer_legend or pop_stats:
@@ -464,8 +380,6 @@ def _radius_for(value: float, value_max: float,
 
 def build_buffer_map(lockers: pd.DataFrame,
                      show_pop_grid: bool = False) -> folium.Map:
-    """Tab 1 — naive 400 m buffer as actual geographic circles."""
-
     vmax = float(lockers["pop_400m_buffer"].max() or 1)
     vmin = float(lockers["pop_400m_buffer"].min() or 0)
 
@@ -496,11 +410,7 @@ def build_buffer_map(lockers: pd.DataFrame,
     for _, r in lockers.iterrows():
         folium.Marker(
             location=[r["lat"], r["lon"]],
-            icon=folium.Icon(
-                color="lightgray",
-                icon="cube",
-                prefix="fa",
-            ),
+            icon=folium.Icon(color="lightgray", icon="cube", prefix="fa"),
             tooltip=f"{r['locker_name']}",
             popup=folium.Popup(
                 f"<b>{r['locker_name']}</b><br>"
@@ -514,13 +424,12 @@ def build_buffer_map(lockers: pd.DataFrame,
         "high":  f"High: {int(vmax):,}",
     }
 
-    m = _base_map(
+    return _base_map(
         show_network=False,
         show_pop_grid=show_pop_grid,
         prepend_layers=[buf_fg, marker_fg],
         buffer_legend=buffer_legend,
     )
-    return m
 
 
 def build_network_map(lockers: pd.DataFrame, minutes: int) -> folium.Map:
