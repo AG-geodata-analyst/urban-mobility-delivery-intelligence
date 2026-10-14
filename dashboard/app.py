@@ -100,6 +100,10 @@ def load_network_edges(sample_every: int = 15) -> dict:
 
 @st.cache_data(show_spinner="Rendering population grid…")
 def load_population_png():
+    """
+    Clip WorldPop raster to Tallinn polygon → coloured PNG + real stats
+    (total, min, max) computed only from cells inside the boundary.
+    """
     raster_path = "/opt/airflow/data/population/est_ppp_2020_UNadj_constrained.tif"
     bnd = load_tallinn_boundary()
     geom = [shape(bnd["features"][0]["geometry"])]
@@ -120,8 +124,17 @@ def load_population_png():
     if not valid.any():
         raise ValueError("Clipped raster has no valid population pixels.")
 
-    vmax = float(np.percentile(data[valid], 99))
+    valid_values = data[valid]
+    stats = {
+        "total": int(round(float(valid_values.sum()))),
+        "low":   float(valid_values.min()),
+        "high":  float(valid_values.max()),
+    }
+    print(f"[pop-grid] stats → total={stats['total']:,} "
+          f"low={stats['low']:.2f} high={stats['high']:.2f}")
 
+    # ramp top = actual max, so the legend numbers match the colours
+    vmax = stats["high"]
     anchors = np.array([
         [68, 1, 84], [59, 82, 139], [33, 145, 140],
         [94, 201, 98], [253, 231, 37],
@@ -142,8 +155,7 @@ def load_population_png():
     Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG")
     png_b64 = base64.b64encode(buf.getvalue()).decode()
 
-    return png_b64, [[south, west], [north, east]]
-
+    return png_b64, [[south, west], [north, east]], stats
 
 # ─── Map helpers ─────────────────────────────────────────────────────────────
 
@@ -190,7 +202,7 @@ class _ResetControl(MacroElement):
 
 
 class _PopGridLegend(MacroElement):
-    """Viridis legend, bottom-left, shown only when the WorldPop layer is active."""
+    """Viridis legend, bottom-left; text values passed in from the DAG's raster."""
 
     _template = Template("""
         {% macro script(this, kwargs) %}
@@ -202,9 +214,13 @@ class _PopGridLegend(MacroElement):
                 "padding:8px 10px;border-radius:4px;font-size:11px;" +
                 "box-shadow:0 1px 4px rgba(0,0,0,0.35);display:none;";
             var barCss =
-                "width:140px;height:12px;border-radius:2px;" +
+                "width:160px;height:12px;border-radius:2px;" +
                 "background:linear-gradient(to right," +
                 "#440154 0%,#3b528b 25%,#21918c 50%,#5ec962 75%,#fde725 100%);";
+
+            var titleText = {{ this.title | tojson }};
+            var lowText   = {{ this.low_text | tojson }};
+            var highText  = {{ this.high_text | tojson }};
 
             var LegendControl = L.Control.extend({
                 options: { position: 'bottomleft' },
@@ -219,11 +235,12 @@ class _PopGridLegend(MacroElement):
                     inner.style.cssText = legendCss;
                     inner.innerHTML =
                         '<div style="font-weight:600;margin-bottom:4px;color:#222;">' +
-                        'Population density (WorldPop)</div>' +
+                        titleText + '</div>' +
                         '<div style="' + barCss + '"></div>' +
                         '<div style="display:flex;justify-content:space-between;' +
                         'font-size:10px;color:#444;margin-top:2px;">' +
-                        '<span>low</span><span>high</span></div>';
+                        '<span>' + lowText + '</span>' +
+                        '<span>' + highText + '</span></div>';
 
                     c.appendChild(inner);
                     return c;
@@ -250,10 +267,12 @@ class _PopGridLegend(MacroElement):
         {% endmacro %}
     """)
 
-    def __init__(self):
+    def __init__(self, title: str, low_text: str, high_text: str):
         super().__init__()
         self._name = "PopGridLegend"
-
+        self.title = title
+        self.low_text = low_text
+        self.high_text = high_text
 
 def _base_map(show_network: bool = True,
               show_pop_grid: bool = False,
@@ -311,9 +330,10 @@ def _base_map(show_network: bool = True,
             layer.add_to(m)
 
     # --- population grid ---
+    pop_stats = None
     if show_pop_grid:
         try:
-            png_b64, bounds = load_population_png()
+            png_b64, bounds, pop_stats = load_population_png()
             folium.raster_layers.ImageOverlay(
                 image=f"data:image/png;base64,{png_b64}",
                 bounds=bounds,
@@ -374,8 +394,12 @@ def _base_map(show_network: bool = True,
 
     m.add_child(_ResetControl(MAP_CENTER, MAP_ZOOM))
 
-    if show_pop_grid:
-        m.add_child(_PopGridLegend())
+    if show_pop_grid and pop_stats is not None:
+        m.add_child(_PopGridLegend(
+            title=f"Population in Tallinn — total: {pop_stats['total']:,}",
+            low_text=f"Low: {pop_stats['low']:.1f}",
+            high_text=f"High: {pop_stats['high']:.0f}",
+        ))
 
     folium.LayerControl(collapsed=False, position="topright").add_to(m)
     return m
