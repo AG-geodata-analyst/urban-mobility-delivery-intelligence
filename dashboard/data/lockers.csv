@@ -1,0 +1,97 @@
+locker_id,locker_name,lon,lat,pop_5min_network,pop_10min_network,pop_15min_network,pop_400m_buffer,buffer_network_gap
+1,1. eelistus,24.793373,59.430318,2415,8347,15735,2022,-19.44
+2,2. Picapac,24.793373,59.430318,2415,8347,15735,2022,-19.44
+44,Arsenali postkontor,24.717816,59.451722,1067,4721,11648,998,-6.91
+193,Järve keskuse postkontor,24.719128,59.393147,443,2354,5807,615,27.97
+241,Kaubamaja postkontor,24.75674,59.435041,1373,5705,12391,1098,-25.05
+481,Lasnamäe Centrum postkontor,24.862649,59.440569,691,3253,7792,731,5.47
+562,Mustika postkontor,24.681539,59.410937,1690,7403,15853,2262,25.29
+612,Omniva ettevõttesisene pakiautomaat,24.744066,59.432438,662,4138,10402,1071,38.19
+669,Pirita postkontor,24.827395,59.462443,303,1132,2514,452,32.96
+748,Rocca Al Mare postkontor,24.651591,59.426851,0,178,329,1145,100.0
+943,Sikupilli postkontor,24.784057,59.42641,1087,6421,14510,2026,46.35
+975,Tallinna Akadeemia Coop Konsumi pakiautomaat,24.655613,59.40337,3165,11754,22563,2525,-25.35
+976,Tallinna Apollo Plaza pakiautomaat,24.756946,59.438101,996,4682,10791,981,-1.53
+977,Tallinna Arsenali Keskuse pakiautomaat,24.718214,59.451157,910,4890,10866,1029,11.56
+978,Tallinna Astangu Maxima X pakiautomaat,24.638312,59.40525,439,2552,7483,1187,63.02
+979,Tallinna Balti Jaama pakiautomaat,24.736474,59.439807,1248,5330,12848,1269,1.65
+980,Tallinna Balti Jaama turu pakiautomaat,24.734591,59.440884,1120,5433,12917,1490,24.83
+981,Tallinna Donte Ärikeskuse pakiautomaat,24.736499,59.410291,1052,3620,6795,1100,4.36
+982,Tallinna Ehitajate tee Grossi pakiautomaat,24.668363,59.401747,3118,9315,17453,2577,-20.99
+983,Tallinna Ehitajate tee Maxima XXX pakiautomaat,24.651429,59.420604,897,3515,6511,1453,38.27
+984,Tallinna Haabersti Rimi pakiautomaat,24.645121,59.424626,212,892,1559,1502,85.89
+985,Tallinna Idakeskuse pakiautomaat,24.823852,59.432084,701,5496,17088,1887,62.85
+986,Tallinna Jannseni Maxima X pakiautomaat,24.665049,59.373317,442,1869,4197,397,-11.34
+987,Tallinna Juhkentali Rimi pakiautomaat,24.77037,59.427539,1138,4586,10311,1061,-7.26
+988,Tallinna Järve Keskuse pakiautomaat,24.723341,59.39352,630,2431,5616,773,18.5
+989,Tallinna Järveotsa Grossi pakiautomaat,24.640639,59.407278,1796,6976,14925,1317,-36.37
+990,Tallinna Kadaka Selveri pakiautomaat,24.666952,59.412235,2135,6591,15858,2107,-1.33
+991,Tallinna Kakumäe Selveri pakiautomaat,24.626459,59.428507,295,1165,2386,820,64.02
+992,Tallinna Kari Grossipoe pakiautomaat,24.697798,59.447618,1735,7257,13129,1500,-15.67
+993,Tallinna Kivila Grossi pakiautomaat,24.872824,59.44372,994,4071,9097,750,-32.53
+994,Tallinna Kolde Rimi pakiautomaat,24.707627,59.438651,584,3774,9547,1442,59.5
+995,Tallinna Kollase keskuse pakiautomaat,24.63769,59.411587,1594,5801,12321,1316,-21.12
+996,Tallinna Kristiine Keskuse pakiautomaat,24.725468,59.425773,593,2919,7982,1034,42.65
+997,Tallinna Kärberi Keskuse pakiautomaat,24.88232,59.445338,815,3553,7624,637,-27.94
+998,Tallinna Lasnamäe Centrumi pakiautomaat,24.865373,59.440997,674,3174,7838,586,-15.02
+999,Tallinna Lasnamäe Prisma pakiautomaat,24.863035,59.442965,876,3567,9909,865,-1.27
+1000,Tallinna Lastekodu Grossi pakiautomaat,24.768273,59.430299,1210,4580,10263,1095,-10.5
+1001,Tallinna Linnamäe Maxima XXX pakiautomaat,24.880353,59.450026,880,4225,9123,529,-66.35
+1002,Tallinna Luha 17 pakiautomaat,24.735792,59.425399,863,3609,9326,814,-6.02
+1003,Tallinna Läänemere Selveri pakiautomaat,24.874099,59.452606,1215,4761,10228,968,-25.52
+1004,Tallinna Magdaleena pakiautomaat,24.739149,59.414992,1339,3936,8227,1130,-18.5
+1005,Tallinna Magistrali Keskuse pakiautomaat,24.697046,59.401372,1470,5882,10191,2146,31.5
+1006,Tallinna Marienthali keskuse pakiautomaat,24.697158,59.422699,842,4429,10912,871,3.33
+1007,Tallinna Merimetsa Selveri pakiautomaat,24.697194,59.430016,774,3404,8873,863,10.31
+1008,Tallinna Mustakivi Keskuse pakiautomaat,24.874044,59.442406,1063,3703,8143,834,-27.46
+1009,Tallinna Mustamäe Keskuse pakiautomaat,24.689152,59.408292,796,3951,9607,1857,57.14
+1010,Tallinna Mustika Keskuse pakiautomaat,24.682702,59.41028,1147,5886,13552,2187,47.55
+1011,Tallinna Männiku Rimi pakiautomaat,24.716356,59.371964,507,1991,3609,531,4.52
+1012,Tallinna Nautica Keskuse pakiautomaat,24.762318,59.440763,836,3748,7882,962,13.1
+1013,Tallinna Nurmenuku pakiautomaat,24.654758,59.414396,1469,4443,8796,1613,8.93
+1014,Tallinna Nõmme tee 23 Maxima X pakiautomaat,24.72136,59.417796,654,3705,7599,869,24.74
+1015,Tallinna Nõmme turu pakiautomaat,24.683427,59.388861,626,2784,7997,570,-9.82
+1016,Tallinna Paasiku Grossi pakiautomaat,24.844889,59.448618,1015,3772,9614,1023,0.78
+1017,Tallinna Paepargi Maxima XX pakiautomaat,24.811635,59.43516,2328,9619,21229,2513,7.36
+1018,Tallinna Pallasti pakiautomaat,24.79225,59.430188,2836,9051,16062,2077,-36.54
+1019,Tallinna Pelgulinna Selveri pakiautomaat,24.700754,59.444612,733,5965,13131,1260,41.83
+1020,Tallinna Pille tn pakiautomaat,24.749089,59.420434,246,1511,4965,809,69.59
+1021,Tallinna Pirita Keskuse pakiautomaat,24.835133,59.468486,611,1419,2037,565,-8.14
+1022,Tallinna Pirita Selveri pakiautomaat,24.827687,59.462298,303,1132,2514,432,29.86
+1023,Tallinna Punane 50 pakiautomaat,24.844177,59.435681,856,4707,13556,819,-4.52
+1024,Tallinna Pärnu mnt 390b Maxima X pakiautomaat,24.659253,59.380379,385,1750,4364,446,13.68
+1025,Tallinna Pääsküla RIMI pakiautomaat,24.630545,59.360991,342,1080,2214,785,56.43
+1026,Tallinna Põhja pst Neste pakiautomaat,24.743526,59.444468,618,4195,9778,1246,50.4
+1027,Tallinna Rannamõisa Lidl pakiautomaat,24.610681,59.430798,203,799,1494,575,64.7
+1028,Tallinna Raudalu Coop Konsumi pakiautomaat,24.759516,59.366249,0,111,425,143,100.0
+1029,Tallinna Rocca al Mare pakiautomaat,24.653359,59.426429,0,178,329,1235,100.0
+1030,Tallinna Sikupilli pakiautomaat,24.785391,59.425876,2325,7949,16046,2130,-9.15
+1031,Tallinna Smuuli Maxima XX pakiautomaat,24.822486,59.443633,1095,6387,15606,1248,12.26
+1032,Tallinna Solaris Keskuse pakiautomaat,24.750785,59.43386,1484,5726,12664,1128,-31.56
+1033,Tallinna Stockmanni pakiautomaat,24.76118,59.4317,1141,5080,10849,1009,-13.08
+1034,Tallinna Stroomi Keskuse pakiautomaat,24.692322,59.446947,1796,5434,10516,1317,-36.37
+1035,Tallinna Sõpruse Rimi pakiautomaat,24.707578,59.414724,785,4215,11827,934,15.95
+1036,Tallinna Sõpruse pst 171 Maxima X pakiautomaat,24.704124,59.407356,2204,6629,14160,2062,-6.89
+1037,Tallinna Sütiste Maxima X pakiautomaat,24.690921,59.397717,1146,5323,10856,1594,28.11
+1038,Tallinna T1 Keskuse pakiautomaat,24.796426,59.424749,1911,9554,19592,2114,9.6
+1039,Tallinna Talleke ja Pullike pakiautomaat,24.594272,59.443224,121,477,1254,218,44.5
+1040,Tallinna Taltech pakiautomaat,24.668283,59.396694,2025,6700,15365,2030,0.25
+1041,Tallinna Tammsaare Maxima XX pakiautomaat,24.675657,59.408964,2268,7629,17238,2187,-3.7
+1042,Tallinna Tammsaare Ärikeskuse pakiautomaat,24.716312,59.401454,875,4199,9409,850,-2.94
+1043,Tallinna Tatari 51 pakiautomaat,24.747485,59.424676,1357,4695,10338,1111,-22.14
+1044,Tallinna Tatari Rimi pakiautomaat,24.744329,59.42523,1156,4973,11165,1150,-0.52
+1045,Tallinna Telliskivi Rimi pakiautomaat,24.73023,59.441534,2112,7523,16161,1563,-35.12
+1046,Tallinna Tondi Selveri pakiautomaat,24.714367,59.403079,449,2198,5690,923,51.35
+1047,Tallinna Tondiraba Maxima XX pakiautomaat,24.855714,59.450831,1807,4732,9299,1177,-53.53
+1048,Tallinna Torupilli Selveri pakiautomaat,24.780674,59.432211,383,3670,11406,1173,67.35
+1049,Tallinna Tähesaju Selveri pakiautomaat,24.850299,59.44176,1039,4050,8976,704,-47.59
+1050,Tallinna Tööstuse Rimi pakiautomaat,24.704878,59.453357,878,5906,14271,1091,19.52
+1051,Tallinna Valdeku Maxima X pakiautomaat,24.712072,59.376315,539,1988,4312,369,-46.07
+1052,Tallinna Valdeku Selver ABC pakiautomaat,24.70096,59.381385,268,1755,5039,196,-36.73
+1053,Tallinna Vikerlase Rimi pakiautomaat,24.843896,59.439263,1253,5693,13033,1102,-13.7
+1054,Tallinna Vilde tee Maxima XX pakiautomaat,24.686321,59.402791,854,2069,4127,2038,58.1
+1055,Tallinna Viru Keskuse bussiterminali pakiautomaat,24.756196,59.436135,1053,4761,11212,1018,-3.44
+1056,Tallinna Volta kvartali pakiautomaat,24.7241,59.44883,485,3772,8211,1179,58.86
+1057,Tallinna Õismäe Maxima XX pakiautomaat,24.6476,59.411406,1656,7391,14826,1360,-21.76
+1058,Tallinna Ülemiste City Selveri pakiautomaat,24.802435,59.421651,1566,6041,12261,1884,16.88
+1059,Tallinna Ümera Maxima XX pakiautomaat,24.888873,59.444363,687,3119,6097,514,-33.66

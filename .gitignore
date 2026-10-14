@@ -37,3 +37,10 @@ dbt/logs/
 
 # Exceptions 
 !config/simple_auth_manager_passwords.json.generated
+
+# Keep dashboard freeze files tracked (override broader data ignores)
+!dashboard/data/
+!dashboard/data/*.csv
+!dashboard/data/*.json
+!dashboard/data/*.png
+!dashboard/data/*.geojson
