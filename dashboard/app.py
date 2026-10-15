@@ -23,7 +23,7 @@ st.set_page_config(
 
 DATA_DIR = Path(__file__).parent / "data"
 
-LOCKERS_CSV     = DATA_DIR / "lockers.csv"
+LOCKERS_CSV      = DATA_DIR / "lockers.csv"
 BOUNDARY_GEOJSON = DATA_DIR / "tallinn.geojson"
 NETWORK_GEOJSON  = DATA_DIR / "network.geojson"
 POPGRID_PNG      = DATA_DIR / "popgrid.png"
@@ -63,7 +63,6 @@ def load_network_edges() -> dict:
 
 @st.cache_data(show_spinner="Loading population grid…")
 def load_population_grid():
-    """Return (base64 PNG, bounds, stats) from the frozen snapshot."""
     png_b64 = base64.b64encode(POPGRID_PNG.read_bytes()).decode()
     meta = json.loads(POPGRID_META.read_text())
     return png_b64, meta["bounds"], meta["stats"]
@@ -72,9 +71,7 @@ def load_population_grid():
 # ─── Map helpers ─────────────────────────────────────────────────────────────
 
 def _outside_mask(boundary_geojson: dict) -> dict:
-    """GeoJSON polygon = large world box minus Tallinn boundary."""
-    from shapely.geometry import box, mapping, shape   # lazy import, tiny cost
-
+    from shapely.geometry import box, mapping, shape
     geom = shape(boundary_geojson["features"][0]["geometry"])
     world = box(15.0, 55.0, 35.0, 65.0)
     return mapping(world.difference(geom))
@@ -232,10 +229,139 @@ class _MapLegends(MacroElement):
             self.popgrid_title = self.popgrid_low = self.popgrid_high = ""
 
 
+class _NetworkRadioControl(MacroElement):
+    """
+    Radio control (top-right) + bottom-left legend for tab 2.
+    Toggles three FeatureGroups (5/10/15 min) via pure JS — no Streamlit rerun.
+    """
+
+    _template = Template("""
+        {% macro script(this, kwargs) %}
+        (function() {
+            var map = {{ this._parent.get_name() }};
+            var fg_names = {
+                5:  '{{ this.fg5_name }}',
+                10: '{{ this.fg10_name }}',
+                15: '{{ this.fg15_name }}'
+            };
+            var stats = {{ this.stats | tojson }};
+
+            var RadioControl = L.Control.extend({
+                options: { position: 'topright' },
+                onAdd: function(m) {
+                    var c = L.DomUtil.create('div', 'leaflet-control');
+                    c.style.cssText =
+                        'background:#fff;' +
+                        'padding:10px 12px;' +
+                        'border-radius:5px;' +
+                        'box-shadow:0 1px 5px rgba(0,0,0,0.4);' +
+                        'font-size:12px;' +
+                        'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+                        'color:#333;' +
+                        'line-height:1.3;';
+
+                    c.innerHTML =
+                        '<div style="font-weight:600;font-size:12px;' +
+                        'margin-bottom:6px;padding-bottom:5px;color:#222;' +
+                        'border-bottom:1px solid #e2e2e2;">' +
+                        '\\uD83D\\uDEB6 Walk time</div>' +
+
+                        '<label style="display:flex;align-items:center;' +
+                        'gap:6px;margin-bottom:5px;cursor:pointer;color:#333;">' +
+                        '<input type="radio" name="wt_radio" value="5" ' +
+                        'style="margin:0;cursor:pointer;"> 5 min</label>' +
+
+                        '<label style="display:flex;align-items:center;' +
+                        'gap:6px;margin-bottom:5px;cursor:pointer;color:#333;">' +
+                        '<input type="radio" name="wt_radio" value="10" checked ' +
+                        'style="margin:0;cursor:pointer;"> 10 min</label>' +
+
+                        '<label style="display:flex;align-items:center;' +
+                        'gap:6px;cursor:pointer;color:#333;">' +
+                        '<input type="radio" name="wt_radio" value="15" ' +
+                        'style="margin:0;cursor:pointer;"> 15 min</label>';
+
+                    L.DomEvent.disableClickPropagation(c);
+                    L.DomEvent.disableScrollPropagation(c);
+                    return c;
+                }
+            });
+            new RadioControl().addTo(map);
+
+            var LegendControl = L.Control.extend({
+                options: { position: 'bottomleft' },
+                onAdd: function(m) {
+                    var c = L.DomUtil.create('div', 'leaflet-control');
+                    c.style.cssText = 'background:transparent;border:none;box-shadow:none;';
+
+                    [5, 10, 15].forEach(function(t) {
+                        var s = stats[String(t)] || [0, 1];
+                        var el = document.createElement('div');
+                        el.id = 'wt-legend-' + t;
+                        el.style.cssText =
+                            'background:rgba(255,255,255,0.92);padding:8px 10px;' +
+                            'border-radius:4px;font-size:11px;' +
+                            'box-shadow:0 1px 4px rgba(0,0,0,0.35);margin-bottom:6px;' +
+                            'display:' + (t === 10 ? 'block' : 'none') + ';';
+                        el.innerHTML =
+                            '<div style="font-weight:600;margin-bottom:4px;color:#222;">' +
+                            'Residents reachable in ' + t + ' min on foot</div>' +
+                            '<div style="width:160px;height:12px;border-radius:2px;' +
+                            'background:linear-gradient(to right,' +
+                            '#d73027 0%,#fc8d59 25%,#fee08b 50%,#a6d96a 75%,#1a9641 100%);' +
+                            '"></div>' +
+                            '<div style="display:flex;justify-content:space-between;' +
+                            'font-size:10px;color:#444;margin-top:2px;">' +
+                            '<span>Low: ' + Math.round(s[0]).toLocaleString() + '</span>' +
+                            '<span>High: ' + Math.round(s[1]).toLocaleString() + '</span></div>';
+                        c.appendChild(el);
+                    });
+                    return c;
+                }
+            });
+            new LegendControl().addTo(map);
+
+            function show(threshold) {
+                [5, 10, 15].forEach(function(t) {
+                    var fg = window[fg_names[t]] || eval(fg_names[t]);
+                    if (fg) {
+                        if (t === threshold) {
+                            if (!map.hasLayer(fg)) map.addLayer(fg);
+                        } else {
+                            if (map.hasLayer(fg)) map.removeLayer(fg);
+                        }
+                    }
+                    var el = document.getElementById('wt-legend-' + t);
+                    if (el) el.style.display = (t === threshold) ? 'block' : 'none';
+                });
+            }
+
+            var container = map.getContainer();
+            container.addEventListener('change', function(e) {
+                if (e.target && e.target.name === 'wt_radio') {
+                    show(parseInt(e.target.value));
+                }
+            });
+
+            show(10);
+        })();
+        {% endmacro %}
+    """)
+
+    def __init__(self, fg5_name, fg10_name, fg15_name, stats):
+        super().__init__()
+        self._name = "NetworkRadioControl"
+        self.fg5_name = fg5_name
+        self.fg10_name = fg10_name
+        self.fg15_name = fg15_name
+        self.stats = {str(k): [float(v[0]), float(v[1])]
+                      for k, v in stats.items()}
+
 def _base_map(show_network: bool = True,
               show_pop_grid: bool = False,
               prepend_layers=None,
-              buffer_legend=None) -> folium.Map:
+              buffer_legend=None,
+              show_layer_control: bool = True) -> folium.Map:
     """Base Folium map with configurable overlays."""
     m = folium.Map(
         location=list(MAP_CENTER),
@@ -244,7 +370,6 @@ def _base_map(show_network: bool = True,
         control_scale=True,
     )
 
-    # CartoDB basemap requires a key (read from Streamlit secrets or env).
     carto_key = ""
     try:
         carto_key = st.secrets.get("CARTO_API_KEY", "")
@@ -292,7 +417,6 @@ def _base_map(show_network: bool = True,
         for layer in prepend_layers:
             layer.add_to(m)
 
-    # --- population grid (with stats) ---
     pop_stats = None
     if show_pop_grid:
         try:
@@ -308,7 +432,6 @@ def _base_map(show_network: bool = True,
         except Exception as e:               # noqa: BLE001
             st.warning(f"Population grid unavailable: {e}")
 
-    # --- walkable network (optional) ---
     if show_network:
         try:
             net = load_network_edges()
@@ -325,7 +448,6 @@ def _base_map(show_network: bool = True,
         except Exception as e:                 # noqa: BLE001
             st.warning(f"Network overlay unavailable: {e}")
 
-    # --- Tallinn boundary + outside mask ---
     try:
         bnd = load_tallinn_boundary()
         folium.GeoJson(
@@ -365,7 +487,8 @@ def _base_map(show_network: bool = True,
             popgrid_visible=False,
         ))
 
-    folium.LayerControl(collapsed=False, position="topright").add_to(m)
+    if show_layer_control:
+        folium.LayerControl(collapsed=False, position="topright").add_to(m)
     return m
 
 
@@ -432,31 +555,53 @@ def build_buffer_map(lockers: pd.DataFrame,
     )
 
 
-def build_network_map(lockers: pd.DataFrame, minutes: int) -> folium.Map:
-    col = f"pop_{minutes}min_network"
-    m = _base_map(show_network=True, show_pop_grid=False)
-    vmax = float(lockers[col].max() or 1)
+def build_network_map(lockers: pd.DataFrame) -> folium.Map:
+    """
+    Tab 2 — network accessibility for 5, 10, 15 min in one map.
+    Radio control (in the map) toggles which threshold is visible.
+    No Streamlit rerun on toggle.
+    """
+    m = _base_map(show_network=True, show_pop_grid=False,
+                  show_layer_control=False)
 
-    cmap = LinearColormap(
-        colors=["#d73027", "#fc8d59", "#fee08b", "#a6d96a", "#1a9641"],
-        vmin=0, vmax=vmax,
-        caption=f"Residents reachable in {minutes} min on foot",
-    )
+    fgs = {}
+    stats = {}
 
-    for _, r in lockers.iterrows():
-        v = int(r[col])
-        folium.CircleMarker(
-            location=[r["lat"], r["lon"]],
-            radius=_radius_for(v, vmax),
-            color="#333", weight=0.6, fill=True,
-            fill_color=cmap(v), fill_opacity=0.85,
-            tooltip=f"{r['locker_name']} — {v:,}",
-            popup=folium.Popup(
-                f"<b>{r['locker_name']}</b><br>"
-                f"{minutes}-min network: <b>{v:,}</b>",
-                max_width=240),
-        ).add_to(m)
-    cmap.add_to(m)
+    for mins in (5, 10, 15):
+        col = f"pop_{mins}min_network"
+        vals = lockers[col].astype(float)
+        vmin = float(vals.min() or 0)
+        vmax = float(vals.max() or 1)
+        stats[mins] = (vmin, vmax)
+
+        cmap = LinearColormap(
+            colors=["#d73027", "#fc8d59", "#fee08b", "#a6d96a", "#1a9641"],
+            vmin=0, vmax=vmax,
+        )
+
+        fg = folium.FeatureGroup(name=f"Network {mins} min", show=True)
+        for _, r in lockers.iterrows():
+            v = int(r[col])
+            folium.CircleMarker(
+                location=[r["lat"], r["lon"]],
+                radius=_radius_for(v, vmax),
+                color="#333", weight=0.6, fill=True,
+                fill_color=cmap(v), fill_opacity=0.85,
+                tooltip=f"{r['locker_name']} — {v:,}",
+                popup=folium.Popup(
+                    f"<b>{r['locker_name']}</b><br>"
+                    f"{mins}-min network: <b>{v:,}</b>",
+                    max_width=240),
+            ).add_to(fg)
+        fg.add_to(m)
+        fgs[mins] = fg
+
+    m.add_child(_NetworkRadioControl(
+        fg5_name=fgs[5].get_name(),
+        fg10_name=fgs[10].get_name(),
+        fg15_name=fgs[15].get_name(),
+        stats=stats,
+    ))
     return m
 
 
@@ -533,18 +678,14 @@ with tab_buffer:
 with tab_network:
     st.subheader("Residents reachable on foot, by walk-time threshold")
     st.caption(
-        "Dots show how many residents can actually walk to each locker "
-        "within the selected time, following the real pedestrian network."
+        "Choose **5, 10, or 15 minutes** using the radio control in the "
+        "top-right corner of the map. Switching is instant — no page reload. "
+        "The legend in the bottom-left updates with the selected threshold."
     )
-    minutes = st.radio(
-        "Walk-time threshold",
-        options=[5, 10, 15],
-        index=1,
-        horizontal=True,
-        format_func=lambda x: f"{x} min",
+    st_folium(
+        build_network_map(lockers),
+        width=None, height=620, returned_objects=[],
     )
-    st_folium(build_network_map(lockers, minutes), width=None, height=620,
-              returned_objects=[])
 
 with tab_gap:
     st.subheader("How wrong is the naive 400 m buffer?")
