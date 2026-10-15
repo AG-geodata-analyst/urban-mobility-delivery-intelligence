@@ -31,9 +31,36 @@ RASTER_PATH = PROJECT_ROOT / "data" / "population" / "est_ppp_2020_UNadj_constra
 GRAPH_PATH = PROJECT_ROOT / "data" / "osm" / "tallinn_walk.graphml"
 BOUNDARY_PATH = PROJECT_ROOT / "data" / "boundaries" / "tallinn.geojson"
 
-MAX_PNG_WIDTH = 2000          # downsample the raster so the PNG stays small
-NETWORK_SAMPLE_EVERY = 40     # keep roughly 1/40 of the walk graph edges
+MAX_PNG_WIDTH = 2000
 
+
+# Network categories — full graph, no sampling.
+# Coordinate precision trimmed to ~1 m to keep geojson size manageable.
+NETWORK_CATEGORIES = {
+    "network_main_roads": {
+        "classes": {
+            "primary", "primary_link",
+            "secondary", "secondary_link",
+            "tertiary", "tertiary_link",
+            "trunk", "trunk_link",
+        },
+        "sample": 1,
+    },
+    "network_local_streets": {
+        "classes": {
+            "residential", "living_street",
+            "unclassified", "service",
+        },
+        "sample": 1,
+    },
+    "network_pedestrian_paths": {
+        "classes": {
+            "footway", "path", "pedestrian",
+            "steps", "corridor", "track",
+        },
+        "sample": 1,
+    },
+}
 
 def _db_conn():
     return psycopg2.connect(
@@ -64,25 +91,52 @@ def export_lockers() -> None:
         df = pd.read_sql(sql, conn)
     out = OUT_DIR / "lockers.csv"
     df.to_csv(out, index=False)
-    print(f"[freeze] lockers.csv    → {len(df):>4} rows, {out.stat().st_size / 1024:.1f} KB")
+    print(f"[freeze] lockers.csv              → {len(df):>4} rows, "
+          f"{out.stat().st_size / 1024:.1f} KB")
 
 
 def export_boundary() -> None:
     dst = OUT_DIR / "tallinn.geojson"
     dst.write_bytes(BOUNDARY_PATH.read_bytes())
-    print(f"[freeze] tallinn.geojson → {dst.stat().st_size / 1024:.1f} KB")
+    print(f"[freeze] tallinn.geojson          → {dst.stat().st_size / 1024:.1f} KB")
 
 
-def export_network() -> None:
+def export_network_categories() -> None:
+    """Full walk graph, split into 3 categories, coords rounded to ~1 m."""
+    import numpy as np
+
     G = ox.load_graphml(GRAPH_PATH)
     edges = ox.graph_to_gdfs(G, nodes=False, edges=True)
-    edges = edges.iloc[::NETWORK_SAMPLE_EVERY]
-    geojson = json.loads(edges[["geometry"]].to_json())
-    out = OUT_DIR / "network.geojson"
-    # minified to keep file size down
-    out.write_text(json.dumps(geojson, separators=(",", ":")))
-    print(f"[freeze] network.geojson → {len(edges):>4} edges, "
-          f"{out.stat().st_size / (1024 * 1024):.2f} MB")
+
+    def _norm(h):
+        if isinstance(h, list):
+            h = h[0] if h else "unknown"
+        return h or "unknown"
+
+    edges["hw"] = edges["highway"].apply(_norm)
+
+    def _round_coords(geom):
+        if geom is None or geom.is_empty:
+            return geom
+        return type(geom)(
+            np.round(np.asarray(geom.coords), 5).tolist(),
+            **({"interior": []} if geom.geom_type == "Polygon" else {})
+        )
+
+    for fname, spec in NETWORK_CATEGORIES.items():
+        sub = edges[edges["hw"].isin(spec["classes"])].copy()
+        if spec["sample"] > 1:
+            sub = sub.iloc[::spec["sample"]]
+
+        sub["geometry"] = sub["geometry"].apply(
+            lambda g: type(g)(np.round(np.asarray(g.coords), 5).tolist())
+        )
+
+        geojson = json.loads(sub[["geometry"]].to_json())
+        out = OUT_DIR / f"{fname}.geojson"
+        out.write_text(json.dumps(geojson, separators=(",", ":")))
+        print(f"[freeze] {fname:<22} → {len(sub):>6} edges, "
+              f"{out.stat().st_size / (1024 * 1024):.2f} MB")
 
 
 def export_population_grid() -> None:
@@ -134,16 +188,12 @@ def export_population_grid() -> None:
     png_path = OUT_DIR / "popgrid.png"
     img.save(png_path, format="PNG", optimize=True)
 
-    meta = {
-        "bounds": [[south, west], [north, east]],
-        "stats":  stats,
-    }
-    meta_path = OUT_DIR / "popgrid_meta.json"
-    meta_path.write_text(json.dumps(meta, indent=2))
+    meta = {"bounds": [[south, west], [north, east]], "stats": stats}
+    (OUT_DIR / "popgrid_meta.json").write_text(json.dumps(meta, indent=2))
 
-    print(f"[freeze] popgrid.png     → {img.width}×{img.height}, "
+    print(f"[freeze] popgrid.png              → {img.width}×{img.height}, "
           f"{png_path.stat().st_size / 1024:.1f} KB")
-    print(f"[freeze] popgrid_meta    → total={stats['total']:,} persons, "
+    print(f"[freeze] popgrid_meta             → total={stats['total']:,} persons, "
           f"low={stats['low']:.2f}, high={stats['high']:.2f}")
 
 
@@ -151,7 +201,7 @@ def main() -> None:
     print(f"[freeze] writing to {OUT_DIR}")
     export_lockers()
     export_boundary()
-    export_network()
+    export_network_categories()
     export_population_grid()
     print("[freeze] done.")
 

@@ -25,7 +25,9 @@ DATA_DIR = Path(__file__).parent / "data"
 
 LOCKERS_CSV      = DATA_DIR / "lockers.csv"
 BOUNDARY_GEOJSON = DATA_DIR / "tallinn.geojson"
-NETWORK_GEOJSON  = DATA_DIR / "network.geojson"
+NETWORK_MAIN_GEOJSON  = DATA_DIR / "network_main_roads.geojson"
+NETWORK_LOCAL_GEOJSON = DATA_DIR / "network_local_streets.geojson"
+NETWORK_PED_GEOJSON   = DATA_DIR / "network_pedestrian_paths.geojson"
 POPGRID_PNG      = DATA_DIR / "popgrid.png"
 POPGRID_META     = DATA_DIR / "popgrid_meta.json"
 
@@ -57,8 +59,18 @@ def load_tallinn_boundary() -> dict:
 
 
 @st.cache_data(show_spinner="Loading walkable network…")
-def load_network_edges() -> dict:
-    return json.loads(NETWORK_GEOJSON.read_text())
+def load_network_main() -> dict:
+    return json.loads(NETWORK_MAIN_GEOJSON.read_text())
+
+
+@st.cache_data(show_spinner="Loading walkable network…")
+def load_network_local() -> dict:
+    return json.loads(NETWORK_LOCAL_GEOJSON.read_text())
+
+
+@st.cache_data(show_spinner="Loading walkable network…")
+def load_network_ped() -> dict:
+    return json.loads(NETWORK_PED_GEOJSON.read_text())
 
 
 @st.cache_data(show_spinner="Loading population grid…")
@@ -228,10 +240,14 @@ class _MapLegends(MacroElement):
         else:
             self.popgrid_title = self.popgrid_low = self.popgrid_high = ""
 
+
 class _NetworkRadioControl(MacroElement):
     """
-    Top-right panel: radio (5/10/15 min) + two checkboxes (locker locations,
-    population grid) + bottom-left legend. All toggles are pure JS.
+    Top-right panel:
+      • radio for walk-time threshold
+      • three network-category checkboxes (main, local, pedestrian)
+      • two auxiliary-layer checkboxes (marker pins, population grid)
+    All toggles are pure JS — no Streamlit rerun.
     """
 
     _template = Template("""
@@ -243,6 +259,11 @@ class _NetworkRadioControl(MacroElement):
                 10: '{{ this.fg10_name }}',
                 15: '{{ this.fg15_name }}'
             };
+            var net_names = {
+                'main':  '{{ this.net_main_name }}',
+                'local': '{{ this.net_local_name }}',
+                'ped':   '{{ this.net_ped_name }}'
+            };
             var markers_name = '{{ this.markers_name }}';
             var popgrid_name = '{{ this.popgrid_name }}';
             var stats = {{ this.stats | tojson }};
@@ -251,62 +272,61 @@ class _NetworkRadioControl(MacroElement):
                 return window[name] || eval(name);
             }
 
-            var RadioControl = L.Control.extend({
+            var Panel = L.Control.extend({
                 options: { position: 'topright' },
                 onAdd: function(m) {
                     var c = L.DomUtil.create('div', 'leaflet-control');
                     c.style.cssText =
-                        'background:#fff;' +
-                        'padding:10px 12px;' +
-                        'border-radius:5px;' +
-                        'box-shadow:0 1px 5px rgba(0,0,0,0.4);' +
-                        'font-size:12px;' +
+                        'background:#fff;padding:10px 12px;border-radius:5px;' +
+                        'box-shadow:0 1px 5px rgba(0,0,0,0.4);font-size:12px;' +
                         'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
-                        'color:#333;' +
-                        'line-height:1.3;';
+                        'color:#333;line-height:1.3;';
+
+                    function section(title) {
+                        return '<div style="font-weight:600;font-size:12px;' +
+                               'margin-bottom:6px;padding-bottom:5px;color:#222;' +
+                               'border-bottom:1px solid #e2e2e2;">' + title + '</div>';
+                    }
+                    function divider() {
+                        return '<div style="border-top:1px solid #e2e2e2;' +
+                               'margin:8px 0 6px 0;"></div>';
+                    }
+                    function radioRow(value, label, checked) {
+                        return '<label style="display:flex;align-items:center;' +
+                               'gap:6px;margin-bottom:5px;cursor:pointer;color:#333;">' +
+                               '<input type="radio" name="wt_radio" value="' + value + '"' +
+                               (checked ? ' checked' : '') + ' style="margin:0;cursor:pointer;"> ' +
+                               label + '</label>';
+                    }
+                    function checkRow(cls, target, label, checked) {
+                        return '<label style="display:flex;align-items:center;' +
+                               'gap:6px;margin-bottom:5px;cursor:pointer;color:#333;">' +
+                               '<input type="checkbox" class="' + cls + '" ' +
+                               'data-target="' + target + '"' + (checked ? ' checked' : '') +
+                               ' style="margin:0;cursor:pointer;"> ' + label + '</label>';
+                    }
 
                     c.innerHTML =
-                        '<div style="font-weight:600;font-size:12px;' +
-                        'margin-bottom:6px;padding-bottom:5px;color:#222;' +
-                        'border-bottom:1px solid #e2e2e2;">' +
-                        '\\uD83D\\uDEB6 Walk time</div>' +
-
-                        '<label style="display:flex;align-items:center;' +
-                        'gap:6px;margin-bottom:5px;cursor:pointer;color:#333;">' +
-                        '<input type="radio" name="wt_radio" value="5" ' +
-                        'style="margin:0;cursor:pointer;"> 5 min</label>' +
-
-                        '<label style="display:flex;align-items:center;' +
-                        'gap:6px;margin-bottom:5px;cursor:pointer;color:#333;">' +
-                        '<input type="radio" name="wt_radio" value="10" checked ' +
-                        'style="margin:0;cursor:pointer;"> 10 min</label>' +
-
-                        '<label style="display:flex;align-items:center;' +
-                        'gap:6px;cursor:pointer;color:#333;">' +
-                        '<input type="radio" name="wt_radio" value="15" ' +
-                        'style="margin:0;cursor:pointer;"> 15 min</label>' +
-
-                        '<div style="border-top:1px solid #e2e2e2;' +
-                        'margin:8px 0 6px 0;"></div>' +
-
-                        '<label style="display:flex;align-items:center;' +
-                        'gap:6px;margin-bottom:5px;cursor:pointer;color:#333;">' +
-                        '<input type="checkbox" class="wt_toggle" ' +
-                        'data-target="markers" style="margin:0;cursor:pointer;"> ' +
-                        'Locker locations</label>' +
-
-                        '<label style="display:flex;align-items:center;' +
-                        'gap:6px;cursor:pointer;color:#333;">' +
-                        '<input type="checkbox" class="wt_toggle" ' +
-                        'data-target="popgrid" style="margin:0;cursor:pointer;"> ' +
-                        'Population grid</label>';
+                        section('\\uD83D\\uDEB6 Walk time') +
+                        radioRow(5,  '5 min',  false) +
+                        radioRow(10, '10 min', true) +
+                        radioRow(15, '15 min', false) +
+                        divider() +
+                        section('\\uD83D\\uDEE3\\uFE0F Network') +
+                        checkRow('wt_net', 'main',  'Main roads',       true) +
+                        checkRow('wt_net', 'local', 'Local streets',    false) +
+                        checkRow('wt_net', 'ped',   'Pedestrian paths', false) +
+                        divider() +
+                        section('\\uD83D\\uDCCC Other layers') +
+                        checkRow('wt_toggle', 'markers', 'Locker locations',  false) +
+                        checkRow('wt_toggle', 'popgrid', 'Population grid',   false);
 
                     L.DomEvent.disableClickPropagation(c);
                     L.DomEvent.disableScrollPropagation(c);
                     return c;
                 }
             });
-            new RadioControl().addTo(map);
+            new Panel().addTo(map);
 
             var LegendControl = L.Control.extend({
                 options: { position: 'bottomleft' },
@@ -362,34 +382,60 @@ class _NetworkRadioControl(MacroElement):
                     show(parseInt(e.target.value));
                     return;
                 }
-                if (e.target && e.target.classList &&
-                    e.target.classList.contains('wt_toggle')) {
-                    var target = e.target.getAttribute('data-target');
-                    var layer = null;
-                    if (target === 'markers') layer = getLayer(markers_name);
-                    if (target === 'popgrid') layer = getLayer(popgrid_name);
-                    if (layer) {
-                        if (e.target.checked) {
-                            if (!map.hasLayer(layer)) map.addLayer(layer);
-                        } else {
-                            if (map.hasLayer(layer)) map.removeLayer(layer);
+                if (e.target && e.target.classList) {
+                    if (e.target.classList.contains('wt_net')) {
+                        var t = e.target.getAttribute('data-target');
+                        var layer = getLayer(net_names[t]);
+                        if (layer) {
+                            if (e.target.checked) {
+                                if (!map.hasLayer(layer)) map.addLayer(layer);
+                            } else {
+                                if (map.hasLayer(layer)) map.removeLayer(layer);
+                            }
+                        }
+                    }
+                    if (e.target.classList.contains('wt_toggle')) {
+                        var t2 = e.target.getAttribute('data-target');
+                        var layer2 = null;
+                        if (t2 === 'markers') layer2 = getLayer(markers_name);
+                        if (t2 === 'popgrid') layer2 = getLayer(popgrid_name);
+                        if (layer2) {
+                            if (e.target.checked) {
+                                if (!map.hasLayer(layer2)) map.addLayer(layer2);
+                            } else {
+                                if (map.hasLayer(layer2)) map.removeLayer(layer2);
+                            }
                         }
                     }
                 }
             });
 
             show(10);
+
+            // Hide non-default layers (matches the unchecked checkboxes above)
+            ['local', 'ped'].forEach(function(k) {
+                var lyr = getLayer(net_names[k]);
+                if (lyr && map.hasLayer(lyr)) map.removeLayer(lyr);
+            });
+            [markers_name, popgrid_name].forEach(function(nm) {
+                var lyr = getLayer(nm);
+                if (lyr && map.hasLayer(lyr)) map.removeLayer(lyr);
+            });
         })();
         {% endmacro %}
     """)
 
     def __init__(self, fg5_name, fg10_name, fg15_name,
+                 net_main_name, net_local_name, net_ped_name,
                  markers_name, popgrid_name, stats):
         super().__init__()
         self._name = "NetworkRadioControl"
         self.fg5_name = fg5_name
         self.fg10_name = fg10_name
         self.fg15_name = fg15_name
+        self.net_main_name = net_main_name
+        self.net_local_name = net_local_name
+        self.net_ped_name = net_ped_name
         self.markers_name = markers_name
         self.popgrid_name = popgrid_name
         self.stats = {str(k): [float(v[0]), float(v[1])]
@@ -412,7 +458,7 @@ def _base_map(show_network: bool = True,
     carto_key = ""
     try:
         carto_key = st.secrets.get("CARTO_API_KEY", "")
-    except Exception:                        # noqa: BLE001
+    except Exception:
         pass
     if not carto_key:
         import os
@@ -468,12 +514,12 @@ def _base_map(show_network: bool = True,
                 interactive=False,
                 show=False,
             ).add_to(m)
-        except Exception as e:               # noqa: BLE001
+        except Exception as e:
             st.warning(f"Population grid unavailable: {e}")
 
     if show_network:
         try:
-            net = load_network_edges()
+            net = load_network_main()
             folium.GeoJson(
                 net,
                 name="Walkable network (sampled)",
@@ -484,7 +530,7 @@ def _base_map(show_network: bool = True,
                 },
                 control=False,
             ).add_to(m)
-        except Exception as e:                 # noqa: BLE001
+        except Exception as e:
             st.warning(f"Network overlay unavailable: {e}")
 
     try:
@@ -513,7 +559,7 @@ def _base_map(show_network: bool = True,
             interactive=False,
             control=False,
         ).add_to(m)
-    except Exception as e:                     # noqa: BLE001
+    except Exception as e:
         st.warning(f"Boundary / mask overlay unavailable: {e}")
 
     m.add_child(_ResetControl(MAP_CENTER, MAP_ZOOM))
@@ -597,39 +643,37 @@ def build_buffer_map(lockers: pd.DataFrame,
 def build_network_map(lockers: pd.DataFrame) -> folium.Map:
     """
     Tab 2 — network accessibility for 5, 10, 15 min in one map.
-    Radio control (in the map) toggles which threshold is visible.
-    Additional checkboxes toggle locker markers and the population grid.
-    No Streamlit rerun on any toggle.
+    Walk-time radio + network-category checkboxes + auxiliary toggles.
+    All controls are pure JS — no Streamlit rerun.
     """
     m = _base_map(show_network=False, show_pop_grid=False,
                   show_layer_control=False)
 
-    # --- walkable network underlay (light grey on the dark basemap) ---
-    try:
-        net = load_network_edges()
+    # --- three network-category layers (visibility managed by JS) ---
+    def _net_layer(loader, color, weight, opacity):
+        fg = folium.FeatureGroup(name="net")
         folium.GeoJson(
-            net,
-            name="Walkable network",
-            style_function=lambda _: {
-                # "color": "#c8c8c8",
-                "color": "#00A36C",
-                "weight": 1.75,
-                "opacity": 0.95,
+            loader(),
+            style_function=lambda _, c=color, w=weight, o=opacity: {
+                "color": c, "weight": w, "opacity": o,
             },
             control=False,
-        ).add_to(m)
-    except Exception as e:                     # noqa: BLE001
-        st.warning(f"Network overlay unavailable: {e}")
+        ).add_to(fg)
+        fg.add_to(m)
+        return fg
 
+    net_main_fg  = _net_layer(load_network_main,  "#00A36C", 1.75, 0.95)
+    net_local_fg = _net_layer(load_network_local, "#7FBF9E", 1.10, 0.60)
+    net_ped_fg   = _net_layer(load_network_ped,   "#A8D5C2", 0.85, 0.55)
+
+    # --- three walk-time dot layers ---
     fgs = {}
     stats = {}
-
     for mins in (5, 10, 15):
         col = f"pop_{mins}min_network"
         vals = lockers[col].astype(float)
-        vmin = float(vals.min() or 0)
         vmax = float(vals.max() or 1)
-        stats[mins] = (vmin, vmax)
+        stats[mins] = (float(vals.min() or 0), vmax)
 
         cmap = LinearColormap(
             colors=["#d73027", "#fc8d59", "#fee08b", "#a6d96a", "#1a9641"],
@@ -653,8 +697,8 @@ def build_network_map(lockers: pd.DataFrame) -> folium.Map:
         fg.add_to(m)
         fgs[mins] = fg
 
-    # --- locker markers (unchecked by default) ---
-    marker_fg = folium.FeatureGroup(name="Locker locations", show=False)
+    # --- locker markers (hidden by default; JS hides on init) ---
+    marker_fg = folium.FeatureGroup(name="Locker locations")
     for _, r in lockers.iterrows():
         folium.Marker(
             location=[r["lat"], r["lon"]],
@@ -669,8 +713,8 @@ def build_network_map(lockers: pd.DataFrame) -> folium.Map:
         ).add_to(marker_fg)
     marker_fg.add_to(m)
 
-    # --- population grid (unchecked by default) ---
-    png_b64, bounds, _stats = load_population_grid()
+    # --- population grid (hidden by default; JS hides on init) ---
+    png_b64, bounds, _ = load_population_grid()
     pop_grid = folium.raster_layers.ImageOverlay(
         image=f"data:image/png;base64,{png_b64}",
         bounds=bounds,
@@ -685,11 +729,15 @@ def build_network_map(lockers: pd.DataFrame) -> folium.Map:
         fg5_name=fgs[5].get_name(),
         fg10_name=fgs[10].get_name(),
         fg15_name=fgs[15].get_name(),
+        net_main_name=net_main_fg.get_name(),
+        net_local_name=net_local_fg.get_name(),
+        net_ped_name=net_ped_fg.get_name(),
         markers_name=marker_fg.get_name(),
         popgrid_name=pop_grid.get_name(),
         stats=stats,
     ))
     return m
+
 
 def build_gap_map(lockers: pd.DataFrame) -> folium.Map:
     m = _base_map(show_network=True, show_pop_grid=False)
