@@ -228,11 +228,10 @@ class _MapLegends(MacroElement):
         else:
             self.popgrid_title = self.popgrid_low = self.popgrid_high = ""
 
-
 class _NetworkRadioControl(MacroElement):
     """
-    Radio control (top-right) + bottom-left legend for tab 2.
-    Toggles three FeatureGroups (5/10/15 min) via pure JS — no Streamlit rerun.
+    Top-right panel: radio (5/10/15 min) + two checkboxes (locker locations,
+    population grid) + bottom-left legend. All toggles are pure JS.
     """
 
     _template = Template("""
@@ -244,7 +243,13 @@ class _NetworkRadioControl(MacroElement):
                 10: '{{ this.fg10_name }}',
                 15: '{{ this.fg15_name }}'
             };
+            var markers_name = '{{ this.markers_name }}';
+            var popgrid_name = '{{ this.popgrid_name }}';
             var stats = {{ this.stats | tojson }};
+
+            function getLayer(name) {
+                return window[name] || eval(name);
+            }
 
             var RadioControl = L.Control.extend({
                 options: { position: 'topright' },
@@ -279,7 +284,22 @@ class _NetworkRadioControl(MacroElement):
                         '<label style="display:flex;align-items:center;' +
                         'gap:6px;cursor:pointer;color:#333;">' +
                         '<input type="radio" name="wt_radio" value="15" ' +
-                        'style="margin:0;cursor:pointer;"> 15 min</label>';
+                        'style="margin:0;cursor:pointer;"> 15 min</label>' +
+
+                        '<div style="border-top:1px solid #e2e2e2;' +
+                        'margin:8px 0 6px 0;"></div>' +
+
+                        '<label style="display:flex;align-items:center;' +
+                        'gap:6px;margin-bottom:5px;cursor:pointer;color:#333;">' +
+                        '<input type="checkbox" class="wt_toggle" ' +
+                        'data-target="markers" style="margin:0;cursor:pointer;"> ' +
+                        'Locker locations</label>' +
+
+                        '<label style="display:flex;align-items:center;' +
+                        'gap:6px;cursor:pointer;color:#333;">' +
+                        '<input type="checkbox" class="wt_toggle" ' +
+                        'data-target="popgrid" style="margin:0;cursor:pointer;"> ' +
+                        'Population grid</label>';
 
                     L.DomEvent.disableClickPropagation(c);
                     L.DomEvent.disableScrollPropagation(c);
@@ -323,7 +343,7 @@ class _NetworkRadioControl(MacroElement):
 
             function show(threshold) {
                 [5, 10, 15].forEach(function(t) {
-                    var fg = window[fg_names[t]] || eval(fg_names[t]);
+                    var fg = getLayer(fg_names[t]);
                     if (fg) {
                         if (t === threshold) {
                             if (!map.hasLayer(fg)) map.addLayer(fg);
@@ -340,6 +360,21 @@ class _NetworkRadioControl(MacroElement):
             container.addEventListener('change', function(e) {
                 if (e.target && e.target.name === 'wt_radio') {
                     show(parseInt(e.target.value));
+                    return;
+                }
+                if (e.target && e.target.classList &&
+                    e.target.classList.contains('wt_toggle')) {
+                    var target = e.target.getAttribute('data-target');
+                    var layer = null;
+                    if (target === 'markers') layer = getLayer(markers_name);
+                    if (target === 'popgrid') layer = getLayer(popgrid_name);
+                    if (layer) {
+                        if (e.target.checked) {
+                            if (!map.hasLayer(layer)) map.addLayer(layer);
+                        } else {
+                            if (map.hasLayer(layer)) map.removeLayer(layer);
+                        }
+                    }
                 }
             });
 
@@ -348,14 +383,18 @@ class _NetworkRadioControl(MacroElement):
         {% endmacro %}
     """)
 
-    def __init__(self, fg5_name, fg10_name, fg15_name, stats):
+    def __init__(self, fg5_name, fg10_name, fg15_name,
+                 markers_name, popgrid_name, stats):
         super().__init__()
         self._name = "NetworkRadioControl"
         self.fg5_name = fg5_name
         self.fg10_name = fg10_name
         self.fg15_name = fg15_name
+        self.markers_name = markers_name
+        self.popgrid_name = popgrid_name
         self.stats = {str(k): [float(v[0]), float(v[1])]
                       for k, v in stats.items()}
+
 
 def _base_map(show_network: bool = True,
               show_pop_grid: bool = False,
@@ -559,7 +598,8 @@ def build_network_map(lockers: pd.DataFrame) -> folium.Map:
     """
     Tab 2 — network accessibility for 5, 10, 15 min in one map.
     Radio control (in the map) toggles which threshold is visible.
-    No Streamlit rerun on toggle.
+    Additional checkboxes toggle locker markers and the population grid.
+    No Streamlit rerun on any toggle.
     """
     m = _base_map(show_network=True, show_pop_grid=False,
                   show_layer_control=False)
@@ -596,14 +636,43 @@ def build_network_map(lockers: pd.DataFrame) -> folium.Map:
         fg.add_to(m)
         fgs[mins] = fg
 
+    # --- locker markers (unchecked by default) ---
+    marker_fg = folium.FeatureGroup(name="Locker locations", show=False)
+    for _, r in lockers.iterrows():
+        folium.Marker(
+            location=[r["lat"], r["lon"]],
+            icon=folium.Icon(color="lightgray", icon="cube", prefix="fa"),
+            tooltip=f"{r['locker_name']}",
+            popup=folium.Popup(
+                f"<b>{r['locker_name']}</b><br>"
+                f"5-min network: {int(r['pop_5min_network']):,}<br>"
+                f"10-min network: {int(r['pop_10min_network']):,}<br>"
+                f"15-min network: {int(r['pop_15min_network']):,}",
+                max_width=260),
+        ).add_to(marker_fg)
+    marker_fg.add_to(m)
+
+    # --- population grid (unchecked by default) ---
+    png_b64, bounds, _stats = load_population_grid()
+    pop_grid = folium.raster_layers.ImageOverlay(
+        image=f"data:image/png;base64,{png_b64}",
+        bounds=bounds,
+        opacity=0.75,
+        name="Population grid (WorldPop)",
+        interactive=False,
+        show=False,
+    )
+    pop_grid.add_to(m)
+
     m.add_child(_NetworkRadioControl(
         fg5_name=fgs[5].get_name(),
         fg10_name=fgs[10].get_name(),
         fg15_name=fgs[15].get_name(),
+        markers_name=marker_fg.get_name(),
+        popgrid_name=pop_grid.get_name(),
         stats=stats,
     ))
     return m
-
 
 def build_gap_map(lockers: pd.DataFrame) -> folium.Map:
     m = _base_map(show_network=True, show_pop_grid=False)
