@@ -601,8 +601,25 @@ def build_network_map(lockers: pd.DataFrame) -> folium.Map:
     Additional checkboxes toggle locker markers and the population grid.
     No Streamlit rerun on any toggle.
     """
-    m = _base_map(show_network=True, show_pop_grid=False,
+    m = _base_map(show_network=False, show_pop_grid=False,
                   show_layer_control=False)
+
+    # --- walkable network underlay (light grey on the dark basemap) ---
+    try:
+        net = load_network_edges()
+        folium.GeoJson(
+            net,
+            name="Walkable network",
+            style_function=lambda _: {
+                # "color": "#c8c8c8",
+                "color": "#00A36C",
+                "weight": 1.75,
+                "opacity": 0.95,
+            },
+            control=False,
+        ).add_to(m)
+    except Exception as e:                     # noqa: BLE001
+        st.warning(f"Network overlay unavailable: {e}")
 
     fgs = {}
     stats = {}
